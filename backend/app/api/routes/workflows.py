@@ -102,13 +102,13 @@ def import_workflow(
         raise HTTPException(status_code=400, detail="File is not valid JSON")
     body = body_bytes.decode("utf-8")
 
-    result_status, wf = service.import_workflow(
+    result_status, wf, collided_key = service.import_workflow(
         filename, body, overwrite=overwrite, new_name=name
     )
     if result_status == "conflict":
-        existing = service.repo.get_by_source_key("import", filename)
+        existing = service.repo.get_by_source_key("import", collided_key)
         payload = ConflictOut(
-            filename=filename,
+            filename=collided_key,
             existing=WorkflowOut.model_validate(existing),
         ).model_dump()
         return Response(content=json.dumps(payload), status_code=409, media_type="application/json")

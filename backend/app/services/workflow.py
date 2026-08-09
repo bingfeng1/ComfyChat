@@ -8,7 +8,7 @@ from app.models.workflow import Workflow
 from app.repositories.workflow import WorkflowRepository
 
 SyncResult = dict
-ImportResult = tuple[str, Optional[Workflow]]
+ImportResult = tuple[str, Optional[Workflow], Optional[str]]
 
 
 def _utcnow() -> str:
@@ -64,11 +64,14 @@ class WorkflowService:
 
         if new_name:
             new_filename = new_name if new_name.endswith(".json") else f"{new_name}.json"
+            collision = self.repo.get_by_source_key("import", new_filename)
+            if collision is not None:
+                return "conflict", None, new_filename
             wf = self.repo.upsert(
                 source="import", source_key=new_filename, name=new_name,
                 original_name=new_filename, body=body, size_bytes=len(body.encode("utf-8")),
             )
-            return "created", wf
+            return "created", wf, None
 
         if existing is not None:
             if overwrite:
@@ -77,11 +80,11 @@ class WorkflowService:
                 existing.updated_at = _utcnow()
                 self.repo.session.commit()
                 self.repo.session.refresh(existing)
-                return "replaced", existing
-            return "conflict", None
+                return "replaced", existing, None
+            return "conflict", None, filename
 
         wf = self.repo.upsert(
             source="import", source_key=filename, name=display,
             original_name=filename, body=body, size_bytes=len(body.encode("utf-8")),
         )
-        return "created", wf
+        return "created", wf, None

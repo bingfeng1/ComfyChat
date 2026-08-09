@@ -88,36 +88,56 @@ def test_sync_returns_error_on_comfy_failure(engine):
 def test_import_creates(engine):
     repo = _repo(engine)
     service = WorkflowService(repo, object())
-    status, wf = service.import_workflow("a.json", '{"x":1}')
+    status, wf, collided_key = service.import_workflow("a.json", '{"x":1}')
     assert status == "created"
     assert wf.source_key == "a.json"
+    assert collided_key is None
 
 
 def test_import_conflict(engine):
     repo = _repo(engine)
     service = WorkflowService(repo, object())
     service.import_workflow("a.json", '{"x":1}')
-    status, wf = service.import_workflow("a.json", '{"x":2}')
+    status, wf, collided_key = service.import_workflow("a.json", '{"x":2}')
     assert status == "conflict"
     assert wf is None
+    assert collided_key == "a.json"
 
 
 def test_import_overwrite(engine):
     repo = _repo(engine)
     service = WorkflowService(repo, object())
     service.import_workflow("a.json", '{"x":1}')
-    status, wf = service.import_workflow("a.json", '{"x":2}', overwrite=True)
+    status, wf, collided_key = service.import_workflow("a.json", '{"x":2}', overwrite=True)
     assert status == "replaced"
     assert wf.body == '{"x":2}'
     assert wf.id is not None
+    assert collided_key is None
 
 
 def test_import_rename(engine):
     repo = _repo(engine)
     service = WorkflowService(repo, object())
     service.import_workflow("a.json", '{"x":1}')
-    status, wf = service.import_workflow("a.json", '{"x":2}', new_name="b")
+    status, wf, collided_key = service.import_workflow("a.json", '{"x":2}', new_name="b")
     assert status == "created"
     assert wf.source_key == "b.json"
     assert wf.name == "b"
+    assert collided_key is None
     assert len(repo.list()) == 2
+
+
+def test_import_rename_conflict(engine):
+    repo = _repo(engine)
+    service = WorkflowService(repo, object())
+    service.import_workflow("a.json", '{"x":1}')
+    service.import_workflow("b.json", '{"y":2}')
+    before = repo.get_by_source_key("import", "b.json")
+    status, wf, collided_key = service.import_workflow("a.json", '{"x":3}', new_name="b")
+    assert status == "conflict"
+    assert wf is None
+    assert collided_key == "b.json"
+    after = repo.get_by_source_key("import", "b.json")
+    assert after is before
+    assert after.body == '{"y":2}'
+    assert after.size_bytes == before.size_bytes

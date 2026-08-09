@@ -66,6 +66,22 @@ def test_import_rename(tmp_path):
     assert r.json()["source_key"] == "b.json"
 
 
+def test_import_rename_conflict_409(tmp_path):
+    client, _ = _client(tmp_path)
+    files_a = {"file": ("a.json", io.BytesIO(b'{"x":1}'), "application/json")}
+    files_b = {"file": ("b.json", io.BytesIO(b'{"y":2}'), "application/json")}
+    client.post("/workflows/import", files=files_a)
+    client.post("/workflows/import", files=files_b)
+    r = client.post("/workflows/import", files=files_a, params={"name": "b"})
+    assert r.status_code == 409
+    data = r.json()
+    assert data["filename"] == "b.json"
+    assert data["existing"]["name"] == "b"
+    items = client.get("/workflows").json()["items"]
+    b_item = [it for it in items if it["source_key"] == "b.json"][0]
+    assert b_item["size_bytes"] == len('{"y":2}'.encode("utf-8"))
+
+
 def test_import_invalid_json(tmp_path):
     client, _ = _client(tmp_path)
     files = {"file": ("bad.json", io.BytesIO(b"not json"), "application/json")}
