@@ -135,3 +135,71 @@ def test_sync(tmp_path, monkeypatch):
     body = r.json()
     assert body["browse"]["added"] == 1
     assert len(client.get("/workflows").json()["items"]) == 1
+
+
+def test_versions_endpoints(tmp_path):
+    client, _ = _client(tmp_path)
+    files = {"file": ("a.json", io.BytesIO(b'{"x":1}'), "application/json")}
+    wid = client.post("/workflows/import", files=files).json()["id"]
+
+    r = client.get(f"/workflows/{wid}/versions")
+    assert r.status_code == 200
+    assert r.json() == {"items": []}
+
+    r2 = client.get(f"/workflows/{wid}/versions/1")
+    assert r2.status_code == 404
+
+
+def test_versions_after_archive(tmp_path, monkeypatch):
+    client, settings = _client(tmp_path)
+    (settings.comfyui_userdata_dir / "workflows" / "wf.json").write_text('{"n":1}', encoding="utf-8")
+
+    from app.integrations.comfyui.client import ComfyUIClient
+
+    class FakeClient:
+        def __init__(self, s): pass
+        def ping(self): return "ok"
+        def list_browse(self):
+            return [{"name": "wf.json", "path": "workflows/wf.json", "type": "file", "size": 6}]
+        def read_userdata_json(self, name):
+            return '{"n":1}'
+
+    monkeypatch.setattr(ComfyUIClient, "list_browse", FakeClient.list_browse)
+    monkeypatch.setattr(ComfyUIClient, "read_userdata_json", FakeClient.read_userdata_json)
+    client.post("/workflows/sync")
+
+    class FakeClient2:
+        def list_browse(self):
+            return [{"name": "wf.json", "path": "workflows/wf.json", "type": "file", "size": 99}]
+        def read_userdata_json(self, name):
+            return '{"n":2}'
+
+    monkeypatch.setattr(ComfyUIClient, "list_browse", FakeClient2.list_browse)
+    monkeypatch.setattr(ComfyUIClient, "read_userdata_json", FakeClient2.read_userdata_json)
+    client.post("/workflows/sync")
+
+    lst = client.get("/workflows").json()
+    assert lst["items"][0]["has_history"] is True
+    wid = lst["items"][0]["id"]
+
+    r = client.get(f"/workflows/{wid}/versions")
+    assert r.status_code == 200
+    items = r.json()["items"]
+    assert len(items) == 1
+    assert items[0]["version"] == 1
+    assert items[0]["size_bytes"] == 6
+
+    rb = client.get(f"/workflows/{wid}/versions/1")
+    assert rb.status_code == 200
+    assert rb.json() == {"n": 1}
+
+    rd = client.delete(f"/workflows/{wid}/versions/1")
+    assert rd.status_code == 204
+    rd2 = client.delete(f"/workflows/{wid}/versions/1")
+    assert rd2.status_code == 404
+
+
+def test_versions_404_unknown_workflow(tmp_path):
+    client, _ = _client(tmp_path)
+    r = client.get("/workflows/nonexistent/versions")
+    assert r.status_code == 404

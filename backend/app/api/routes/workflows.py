@@ -9,7 +9,14 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_db_session, get_services
 from app.integrations.comfyui.client import ComfyUIClient
 from app.repositories.workflow import WorkflowRepository
-from app.schemas.workflow import ConflictOut, SyncResultOut, WorkflowListOut, WorkflowOut
+from app.schemas.workflow import (
+    ConflictOut,
+    SyncResultOut,
+    WorkflowListOut,
+    WorkflowOut,
+    WorkflowVersionListOut,
+    WorkflowVersionOut,
+)
 from app.services.workflow import WorkflowService
 
 router = APIRouter(prefix="/workflows", tags=["workflows"])
@@ -33,7 +40,11 @@ def list_workflows(
     q: str | None = Query(default=None),
 ) -> dict:
     items = repo.list(source=source, q=q)
-    return {"items": [WorkflowOut.model_validate(w) for w in items]}
+    out = []
+    for w in items:
+        item = WorkflowOut.model_validate(w).model_copy(update={"has_history": repo.has_history(w.id)})
+        out.append(item)
+    return {"items": out}
 
 
 @router.get("/{workflow_id}", response_model=WorkflowOut)
@@ -44,7 +55,7 @@ def get_workflow(
     wf = repo.get(workflow_id)
     if wf is None:
         raise HTTPException(status_code=404, detail="Workflow not found")
-    return WorkflowOut.model_validate(wf)
+    return WorkflowOut.model_validate(wf).model_copy(update={"has_history": repo.has_history(wf.id)})
 
 
 @router.get("/{workflow_id}/body")
@@ -56,6 +67,45 @@ def get_workflow_body(
     if wf is None:
         raise HTTPException(status_code=404, detail="Workflow not found")
     return Response(content=wf.body, media_type="application/json")
+
+
+@router.get("/{workflow_id}/versions", response_model=WorkflowVersionListOut)
+def list_versions(
+    workflow_id: str,
+    repo: WorkflowRepository = Depends(_repo),
+) -> dict:
+    if repo.get(workflow_id) is None:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    versions = repo.list_versions(workflow_id)
+    return {"items": [WorkflowVersionOut.model_validate(v) for v in versions]}
+
+
+@router.get("/{workflow_id}/versions/{version}")
+def get_version_body(
+    workflow_id: str,
+    version: int,
+    repo: WorkflowRepository = Depends(_repo),
+) -> Response:
+    if repo.get(workflow_id) is None:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    v = repo.get_version(workflow_id, version)
+    if v is None:
+        raise HTTPException(status_code=404, detail="Version not found")
+    return Response(content=v.body, media_type="application/json")
+
+
+@router.delete("/{workflow_id}/versions/{version}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_version(
+    workflow_id: str,
+    version: int,
+    repo: WorkflowRepository = Depends(_repo),
+) -> Response:
+    if repo.get(workflow_id) is None:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    ok = repo.delete_version(workflow_id, version)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Version not found")
+    return Response(status_code=204)
 
 
 @router.get("/{workflow_id}/export")
@@ -112,7 +162,7 @@ def import_workflow(
             existing=WorkflowOut.model_validate(existing),
         ).model_dump()
         return Response(content=json.dumps(payload), status_code=409, media_type="application/json")
-    payload = WorkflowOut.model_validate(wf).model_dump()
+    payload = WorkflowOut.model_validate(wf).model_copy(update={"has_history": False}).model_dump()
     payload["body"] = wf.body
     if result_status == "replaced":
         return Response(

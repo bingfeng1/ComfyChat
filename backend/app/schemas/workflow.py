@@ -12,8 +12,24 @@ class WorkflowOut(BaseModel):
     size_bytes: int
     created_at: str
     updated_at: str
+    has_history: bool = False
 
     model_config = {"from_attributes": True}
+
+
+class WorkflowVersionOut(BaseModel):
+    id: str
+    workflow_id: str
+    version: int
+    name: str
+    size_bytes: int
+    captured_at: str
+
+    model_config = {"from_attributes": True}
+
+
+class WorkflowVersionListOut(BaseModel):
+    items: list[WorkflowVersionOut]
 
 
 class WorkflowListOut(BaseModel):
