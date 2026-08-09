@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, Integer, String, Text, UniqueConstraint
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
@@ -33,7 +33,9 @@ class WorkflowVersion(Base):
     __table_args__ = (UniqueConstraint("workflow_id", "version", name="uq_workflow_versions_id_version"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: uuid.uuid4().hex)
-    workflow_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    workflow_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("workflows.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     version: Mapped[int] = mapped_column(Integer, nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)

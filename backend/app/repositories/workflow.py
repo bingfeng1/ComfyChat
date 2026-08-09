@@ -72,6 +72,10 @@ class WorkflowRepository:
         wf = self.get(workflow_id)
         if wf is None:
             return False
+        from sqlalchemy import delete as sa_delete
+        self.session.execute(
+            sa_delete(WorkflowVersion).where(WorkflowVersion.workflow_id == workflow_id)
+        )
         self.session.delete(wf)
         self.session.commit()
         return True
