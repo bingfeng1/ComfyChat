@@ -7,7 +7,8 @@ from typing import Optional, Sequence
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.generation import Generation
+from app.models.generation import Generation, WorkflowGenerationConfig
+from app.models.workflow import Workflow
 
 
 def _utcnow() -> str:
@@ -86,3 +87,44 @@ class GenerationRepository:
         self.session.delete(gen)
         self.session.commit()
         return True
+
+
+class WorkflowGenerationConfigRepository:
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def get_by_workflow(self, workflow_id: str) -> Optional[WorkflowGenerationConfig]:
+        stmt = select(WorkflowGenerationConfig).where(
+            WorkflowGenerationConfig.workflow_id == workflow_id
+        )
+        return self.session.scalar(stmt)
+
+    def upsert(
+        self,
+        workflow_id: str,
+        api_template: dict,
+        fields: list[dict],
+    ) -> WorkflowGenerationConfig:
+        cfg = self.get_by_workflow(workflow_id)
+        if cfg is None:
+            cfg = WorkflowGenerationConfig(
+                workflow_id=workflow_id,
+                api_template=json.dumps(api_template, ensure_ascii=False),
+                fields_json=json.dumps(fields, ensure_ascii=False),
+            )
+            self.session.add(cfg)
+        else:
+            cfg.api_template = json.dumps(api_template, ensure_ascii=False)
+            cfg.fields_json = json.dumps(fields, ensure_ascii=False)
+            cfg.updated_at = _utcnow()
+        self.session.commit()
+        self.session.refresh(cfg)
+        return cfg
+
+    def list_configured(self) -> list[tuple[WorkflowGenerationConfig, str]]:
+        stmt = (
+            select(WorkflowGenerationConfig, Workflow.name)
+            .join(Workflow, Workflow.id == WorkflowGenerationConfig.workflow_id)
+            .order_by(Workflow.name.asc())
+        )
+        return list(self.session.execute(stmt).all())
