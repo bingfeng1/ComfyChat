@@ -12,7 +12,7 @@ from app.repositories.workflow import WorkflowRepository
 from app.schemas.workflow import ConflictOut, SyncResultOut, WorkflowListOut, WorkflowOut
 from app.services.workflow import WorkflowService
 
-router = APIRouter(prefix="/api/workflows", tags=["workflows"])
+router = APIRouter(prefix="/workflows", tags=["workflows"])
 
 
 def _repo(session: Session = Depends(get_db_session)) -> WorkflowRepository:

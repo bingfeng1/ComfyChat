@@ -4,7 +4,7 @@ from app.core.config import Settings
 
 
 def test_settings_defaults():
-    settings = Settings()
+    settings = Settings(_env_file=None)
     assert settings.comfyui_base_url is None
     assert settings.comfyui_api_key is None
     assert settings.database_url.startswith("sqlite:///")

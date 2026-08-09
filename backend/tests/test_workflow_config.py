@@ -4,7 +4,7 @@ from app.core.config import Settings
 
 
 def test_settings_comfyui_userdata_dir_defaults_to_none():
-    settings = Settings()
+    settings = Settings(_env_file=None)
     assert settings.comfyui_userdata_dir is None
 
 
