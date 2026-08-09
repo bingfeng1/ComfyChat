@@ -135,8 +135,9 @@ ComfyChat/
 写入 `D:\learnAI\ComfyChat\.gitignore`：
 
 ```gitignore
-# Storage (runtime files)
-storage/
+# Storage (runtime files; keep directory structure, ignore contents)
+storage/**
+!storage/**/.gitkeep
 
 # Frontend
 frontend/node_modules/
@@ -203,7 +204,7 @@ git check-ignore -v storage/uploads/
 Remove-Item -LiteralPath storage/data/comfychat.db.test -ErrorAction SilentlyContinue
 ```
 
-预期：`git check-ignore` 输出包含 `.gitignore:3:storage/ storage/...`，确认忽略命中。删除临时测试文件。
+预期：`git check-ignore` 命中 `storage/**` 规则，运行时文件被忽略（已跟踪的 `.gitkeep` 不会出现在 `git check-ignore` 输出中）。删除临时测试文件。
 
 ---
 

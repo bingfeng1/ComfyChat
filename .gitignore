@@ -1,5 +1,5 @@
-# Storage (runtime files)
-storage/
+# Storage (runtime files; keep directory structure, ignore contents)
+storage/**
 !storage/**/.gitkeep
 
 # Frontend
