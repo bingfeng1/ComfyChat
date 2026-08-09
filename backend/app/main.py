@@ -1,0 +1,28 @@
+from __future__ import annotations
+
+from typing import Optional
+
+from fastapi import FastAPI
+
+from app.api.routes import health
+from app.core import database
+from app.core.config import Settings
+from app.integrations.comfyui.client import ComfyUIClient
+
+
+def create_app(settings: Optional[Settings] = None) -> FastAPI:
+    settings = settings or Settings()
+    database.configure(settings)
+
+    app = FastAPI(title="ComfyChat API", version="0.1.0")
+    app.state.settings = settings
+    app.state.services = {
+        "database": database,
+        "comfyui": ComfyUIClient(settings),
+    }
+
+    app.include_router(health.router)
+    return app
+
+
+app = create_app()
