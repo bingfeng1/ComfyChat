@@ -51,3 +51,41 @@ def test_get_and_delete(engine, session):
     assert repo.delete(wf.id) is True
     assert repo.get(wf.id) is None
     assert repo.delete(wf.id) is False
+
+
+from app.models.workflow import WorkflowVersion
+
+
+def test_archive_version_and_list(engine, session):
+    _create_tables(engine)
+    repo = WorkflowRepository(session)
+    wf = repo.upsert("browse", "a.json", "a", "a.json", "{}", 2)
+    v1 = repo.archive_version(wf.id, "a", 2, "{}")
+    v2 = repo.archive_version(wf.id, "a", 10, '{"x":1}')
+    assert v1.version == 1
+    assert v2.version == 2
+    versions = repo.list_versions(wf.id)
+    assert [v.version for v in versions] == [1, 2]
+    assert repo.max_version(wf.id) == 2
+    assert repo.has_history(wf.id) is True
+
+
+def test_get_and_delete_version(engine, session):
+    _create_tables(engine)
+    repo = WorkflowRepository(session)
+    wf = repo.upsert("browse", "b.json", "b", "b.json", "{}", 2)
+    repo.archive_version(wf.id, "b", 2, "{}")
+    v1 = repo.get_version(wf.id, 1)
+    assert v1 is not None
+    assert v1.version == 1
+    assert repo.delete_version(wf.id, 1) is True
+    assert repo.get_version(wf.id, 1) is None
+    assert repo.delete_version(wf.id, 1) is False
+
+
+def test_has_history_false_when_none(engine, session):
+    _create_tables(engine)
+    repo = WorkflowRepository(session)
+    wf = repo.upsert("import", "c.json", "c", "c.json", "{}", 2)
+    assert repo.has_history(wf.id) is False
+    assert repo.max_version(wf.id) == 0

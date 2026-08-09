@@ -6,7 +6,7 @@ from typing import Optional, Sequence
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.workflow import Workflow
+from app.models.workflow import Workflow, WorkflowVersion
 
 
 def _utcnow() -> str:
@@ -75,3 +75,50 @@ class WorkflowRepository:
         self.session.delete(wf)
         self.session.commit()
         return True
+
+    def archive_version(self, workflow_id: str, name: str, size_bytes: int, body: str) -> WorkflowVersion:
+        version = self.max_version(workflow_id) + 1
+        v = WorkflowVersion(
+            workflow_id=workflow_id, version=version,
+            name=name, size_bytes=size_bytes, body=body,
+        )
+        self.session.add(v)
+        self.session.commit()
+        self.session.refresh(v)
+        return v
+
+    def list_versions(self, workflow_id: str) -> Sequence[WorkflowVersion]:
+        stmt = (
+            select(WorkflowVersion)
+            .where(WorkflowVersion.workflow_id == workflow_id)
+            .order_by(WorkflowVersion.version.asc())
+        )
+        return self.session.scalars(stmt).all()
+
+    def get_version(self, workflow_id: str, version: int) -> Optional[WorkflowVersion]:
+        stmt = select(WorkflowVersion).where(
+            WorkflowVersion.workflow_id == workflow_id,
+            WorkflowVersion.version == version,
+        )
+        return self.session.scalar(stmt)
+
+    def delete_version(self, workflow_id: str, version: int) -> bool:
+        v = self.get_version(workflow_id, version)
+        if v is None:
+            return False
+        self.session.delete(v)
+        self.session.commit()
+        return True
+
+    def has_history(self, workflow_id: str) -> bool:
+        stmt = select(WorkflowVersion.id).where(WorkflowVersion.workflow_id == workflow_id).limit(1)
+        return self.session.scalar(stmt) is not None
+
+    def max_version(self, workflow_id: str) -> int:
+        from sqlalchemy import func
+        stmt = (
+            select(func.max(WorkflowVersion.version))
+            .where(WorkflowVersion.workflow_id == workflow_id)
+        )
+        result = self.session.scalar(stmt)
+        return result or 0
