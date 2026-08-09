@@ -20,6 +20,7 @@ export interface WorkflowSummary {
   size_bytes: number;
   created_at: string;
   updated_at: string;
+  has_history: boolean;
 }
 
 export interface WorkflowList {
@@ -31,6 +32,7 @@ export interface SyncBrowseResult {
   updated: number;
   skipped: number;
   error: string | null;
+  updates?: string[];
 }
 
 export interface SyncResult {
@@ -41,4 +43,17 @@ export interface SyncResult {
 export interface ImportConflict {
   filename: string;
   existing: WorkflowSummary;
+}
+
+export interface WorkflowVersion {
+  id: string;
+  workflow_id: string;
+  version: number;
+  name: string;
+  size_bytes: number;
+  captured_at: string;
+}
+
+export interface WorkflowVersionList {
+  items: WorkflowVersion[];
 }

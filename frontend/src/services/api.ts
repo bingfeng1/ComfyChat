@@ -6,6 +6,8 @@ import type {
   WorkflowList,
   WorkflowSource,
   WorkflowSummary,
+  WorkflowVersion,
+  WorkflowVersionList,
 } from "@/types/api";
 
 const API_BASE = "/api";
@@ -47,5 +49,12 @@ export const api = {
       return request(`/workflows/import${qs}`, { method: "POST", body: form });
     },
     sync: () => request(`/workflows/sync`, { method: "POST" }),
+    versions: {
+      list: (id: string) => get<WorkflowVersionList>(`/workflows/${id}/versions`),
+      getBody: (id: string, version: number) =>
+        get<Record<string, unknown>>(`/workflows/${id}/versions/${version}`),
+      remove: (id: string, version: number) =>
+        request(`/workflows/${id}/versions/${version}`, { method: "DELETE" }),
+    },
   },
 };
