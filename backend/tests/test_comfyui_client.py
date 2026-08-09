@@ -108,6 +108,38 @@ def test_submit_prompt(monkeypatch):
     assert calls[0][2] == {"prompt": prompt}
 
 
+def test_submit_prompt_missing_prompt_id_raises(monkeypatch):
+    import pytest
+
+    from app.integrations.comfyui.client import ComfyUIError
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"error": "prompt validation failed"}
+
+    class FakeHttpx:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def post(self, url, json):
+            return FakeResponse()
+
+    monkeypatch.setattr("app.integrations.comfyui.client.httpx.Client", FakeHttpx)
+    client = ComfyUIClient(Settings(comfyui_base_url="http://example.com:8188/"))
+
+    with pytest.raises(ComfyUIError):
+        client.submit_prompt({"3": {"class_type": "KSampler"}})
+
+
 def test_get_history(monkeypatch):
     calls = []
 

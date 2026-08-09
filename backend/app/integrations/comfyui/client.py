@@ -73,7 +73,11 @@ class ComfyUIClient:
 
     def submit_prompt(self, prompt: dict) -> str:
         response = self._request("post", "/prompt", json={"prompt": prompt})
-        return response.json()["prompt_id"]
+        data = response.json()
+        prompt_id = data.get("prompt_id")
+        if not prompt_id:
+            raise ComfyUIError(f"ComfyUI /prompt returned no prompt_id: {data}")
+        return prompt_id
 
     def get_history(self, prompt_id: str) -> dict:
         response = self._request("get", f"/history/{prompt_id}")

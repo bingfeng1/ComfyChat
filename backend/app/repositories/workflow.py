@@ -3,9 +3,11 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Optional, Sequence
 
+from sqlalchemy import delete as sa_delete
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.models.generation import Generation, WorkflowGenerationConfig
 from app.models.workflow import Workflow, WorkflowVersion
 
 
@@ -72,9 +74,14 @@ class WorkflowRepository:
         wf = self.get(workflow_id)
         if wf is None:
             return False
-        from sqlalchemy import delete as sa_delete
         self.session.execute(
             sa_delete(WorkflowVersion).where(WorkflowVersion.workflow_id == workflow_id)
+        )
+        self.session.execute(
+            sa_delete(Generation).where(Generation.workflow_id == workflow_id)
+        )
+        self.session.execute(
+            sa_delete(WorkflowGenerationConfig).where(WorkflowGenerationConfig.workflow_id == workflow_id)
         )
         self.session.delete(wf)
         self.session.commit()

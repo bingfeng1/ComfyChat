@@ -25,6 +25,17 @@ async function get<T>(path: string): Promise<T> {
   return (await response.json()) as T;
 }
 
+async function getOrNull<T>(path: string): Promise<T | null> {
+  const response = await fetch(`${API_BASE}${path}`);
+  if (response.status === 404) {
+    return null;
+  }
+  if (!response.ok) {
+    throw new Error(`Request failed: ${response.status}`);
+  }
+  return (await response.json()) as T;
+}
+
 async function request(path: string, init?: RequestInit): Promise<Response> {
   return fetch(`${API_BASE}${path}`, init);
 }
@@ -65,9 +76,9 @@ export const api = {
       get<GenerationConfigList>(`/workflows/generation-configs`),
     generationConfig: {
       get: (id: string) =>
-        get<GenerationConfigPayload & { workflow_id: string; updated_at: string }>(
-          `/workflows/${id}/generation-config`
-        ),
+        getOrNull<
+          GenerationConfigPayload & { workflow_id: string; updated_at: string }
+        >(`/workflows/${id}/generation-config`),
       save: (id: string, payload: GenerationConfigPayload) =>
         request(`/workflows/${id}/generation-config`, {
           method: "PUT",

@@ -42,7 +42,7 @@ def _config(client, wid):
     return r
 
 
-def test_generation_flow(tmp_path):
+def test_generation_flow(tmp_path, monkeypatch):
     client, _ = _client(tmp_path)
     wid = _import_workflow(client)
     _config(client, wid)
@@ -58,7 +58,7 @@ def test_generation_flow(tmp_path):
             return b"PNGDATA"
 
     for name in ("submit_prompt", "get_history", "get_image"):
-        setattr(ComfyUIClient, name, FakeComfy.__dict__[name])
+        monkeypatch.setattr(ComfyUIClient, name, getattr(FakeComfy, name))
 
     r = client.post("/generations", json={
         "workflow_id": wid,
@@ -81,6 +81,28 @@ def test_generation_flow(tmp_path):
 
     rdel = client.delete(f"/generations/{gen['id']}")
     assert rdel.status_code == 204
+    assert client.get("/generations").json()["items"] == []
+
+
+def test_create_returns_503_when_comfyui_unavailable(tmp_path, monkeypatch):
+    from app.integrations.comfyui.client import ComfyUIError
+
+    client, _ = _client(tmp_path)
+    wid = _import_workflow(client)
+    _config(client, wid)
+
+    def boom_submit(self, prompt):
+        raise ComfyUIError("comfyui down")
+
+    monkeypatch.setattr(
+        "app.integrations.comfyui.client.ComfyUIClient.submit_prompt", boom_submit
+    )
+    r = client.post("/generations", json={
+        "workflow_id": wid,
+        "parameters": {"positive_prompt": "cat", "seed": 42, "seed_random": False},
+    })
+    assert r.status_code == 503
+    assert "ComfyUI" in r.json()["detail"]
     assert client.get("/generations").json()["items"] == []
 
 

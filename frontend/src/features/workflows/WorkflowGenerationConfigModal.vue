@@ -15,12 +15,15 @@ const error = ref<string | null>(null);
 onMounted(async () => {
   try {
     const cfg = await api.workflows.generationConfig.get(props.workflowId);
-    apiTemplate.value = JSON.stringify(cfg.api_template, null, 2);
-    fields.value = cfg.fields;
-  } catch {
-    // 无配置时为空模板
-    apiTemplate.value = "{}";
-    fields.value = [];
+    if (cfg === null) {
+      apiTemplate.value = "{}";
+      fields.value = [];
+    } else {
+      apiTemplate.value = JSON.stringify(cfg.api_template, null, 2);
+      fields.value = cfg.fields;
+    }
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : String(err);
   }
 });
 
@@ -89,7 +92,7 @@ async function save() {
 
       <div class="actions">
         <button class="btn" @click="emit('close')">取消</button>
-        <button class="btn primary" :disabled="saving" @click="save">
+        <button class="btn primary" :disabled="saving || !!error" @click="save">
           {{ saving ? "保存中…" : "保存" }}
         </button>
       </div>

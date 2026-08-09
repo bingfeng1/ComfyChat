@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db_session, get_services, get_settings
 from app.core.config import Settings
+from app.integrations.comfyui.client import ComfyUIError
 from app.repositories.generation import GenerationRepository, WorkflowGenerationConfigRepository
 from app.schemas.generation import GenerationCreateIn, GenerationListOut, GenerationOut
 from app.services.generation import GenerationService
@@ -40,6 +41,8 @@ def create_generation(
         gen = service.create(payload.workflow_id, payload.parameters)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    except ComfyUIError as exc:
+        raise HTTPException(status_code=503, detail=f"ComfyUI 不可用: {exc}")
     background.add_task(service.poll_until_done, gen.id)
     return GenerationOut.from_model(gen)
 

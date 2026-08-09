@@ -1,4 +1,8 @@
+from sqlalchemy import select
+
+from app.models.generation import Generation
 from app.models.workflow import Base, Workflow
+from app.repositories.generation import GenerationRepository, WorkflowGenerationConfigRepository
 from app.repositories.workflow import WorkflowRepository
 
 
@@ -99,3 +103,20 @@ def test_delete_workflow_removes_its_versions(engine, session):
     assert repo.has_history(wf.id) is True
     assert repo.delete(wf.id) is True
     assert repo.list_versions(wf.id) == []
+
+
+def test_delete_workflow_removes_generations_and_configs(engine, session):
+    _create_tables(engine)
+    repo = WorkflowRepository(session)
+    wf = repo.upsert("browse", "e.json", "e", "e.json", "{}", 2)
+    wf_id = wf.id
+    gen_repo = GenerationRepository(session)
+    cfg_repo = WorkflowGenerationConfigRepository(session)
+    gen = gen_repo.create(wf_id, wf.name, {"positive_prompt": "cat"}, "queued", "p-1")
+    gen_id = gen.id
+    cfg_repo.upsert(wf_id, {"6": {"class_type": "CLIPTextEncode"}}, [])
+
+    assert repo.delete(wf_id) is True
+    assert session.scalar(select(Generation).where(Generation.id == gen_id)) is None
+    assert cfg_repo.get_by_workflow(wf_id) is None
+    assert repo.get(wf_id) is None
