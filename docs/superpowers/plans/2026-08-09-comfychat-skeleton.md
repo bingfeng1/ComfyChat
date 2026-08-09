@@ -339,12 +339,14 @@ class Settings(BaseSettings):
 - [ ] **Step 6: 安装依赖**
 
 ```powershell
+$env:PIP_INDEX_URL = 'https://pypi.tuna.tsinghua.edu.cn/simple'
 python -m venv backend/.venv
 backend\.venv\Scripts\python -m pip install --upgrade pip
 backend\.venv\Scripts\python -m pip install -e "backend[dev]"
+Remove-Item Env:PIP_INDEX_URL
 ```
 
-预期：pip 报告成功安装。
+预期：pip 报告成功安装。国内网络必须走清华源；默认 PyPI 在国内可能极慢或被墙。
 
 - [ ] **Step 7: 重新运行测试确认通过**
 
@@ -1152,10 +1154,11 @@ app.mount("#app");
 - [ ] **Step 8: 安装依赖**
 
 ```powershell
+npm config set registry https://registry.npmmirror.com/
 npm install --no-audit --no-fund
 ```
 
-预期：在 `frontend/node_modules` 完成安装并生成 `package-lock.json`。
+预期：在 `frontend/node_modules` 完成安装并生成 `package-lock.json`。国内网络必须使用 npmmirror；默认 npmjs.org 在国内可能极慢或被墙。
 
 - [ ] **Step 9: 类型检查**
 
