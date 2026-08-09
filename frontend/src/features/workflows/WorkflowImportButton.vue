@@ -13,8 +13,6 @@ const emit = defineEmits<{
 }>();
 
 const input = ref<HTMLInputElement | null>(null);
-const renameValue = ref("");
-const showRename = ref(false);
 
 function onInput(e: Event) {
   const el = e.target as HTMLInputElement;
@@ -23,19 +21,6 @@ function onInput(e: Event) {
     emit("chosen", file);
   }
   el.value = "";
-}
-
-function resolve(action: "overwrite" | "cancel") {
-  showRename.value = false;
-  emit("conflict-resolve", action);
-}
-
-function confirmRename() {
-  const name = renameValue.value.trim();
-  if (name) {
-    emit("conflict-resolve", "rename", name);
-    showRename.value = false;
-  }
 }
 </script>
 
@@ -55,16 +40,10 @@ function confirmRename() {
     <ImportConflictDialog
       v-if="props.conflict"
       :filename="props.conflict.filename"
-      @overwrite="resolve('overwrite')"
-      @cancel="resolve('cancel')"
-      @rename-click="showRename = true"
+      @overwrite="emit('conflict-resolve', 'overwrite')"
+      @cancel="emit('conflict-resolve', 'cancel')"
+      @rename="(name) => emit('conflict-resolve', 'rename', name)"
     />
-
-    <div v-if="showRename" class="rename-box">
-      <input v-model="renameValue" placeholder="新文件名" />
-      <button class="btn" @click="confirmRename">确定</button>
-      <button class="btn" @click="showRename = false">取消</button>
-    </div>
   </div>
 </template>
 
@@ -80,16 +59,5 @@ function confirmRename() {
   background: #0ea5e9;
   border-color: #0ea5e9;
   color: #fff;
-}
-.rename-box {
-  margin-top: 0.5rem;
-  display: flex;
-  gap: 0.5rem;
-}
-.rename-box input {
-  flex: 1;
-  padding: 0.4rem;
-  border: 1px solid #cbd5e1;
-  border-radius: 6px;
 }
 </style>
