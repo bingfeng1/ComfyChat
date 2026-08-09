@@ -9,6 +9,7 @@ const emit = defineEmits<{
   view: [];
   export: [];
   delete: [];
+  history: [];
 }>();
 
 function fmtSize(bytes: number) {
@@ -35,6 +36,11 @@ const sourceLabel: Record<string, string> = {
     <td>{{ fmtSize(props.workflow.size_bytes) }}</td>
     <td>{{ fmtTime(props.workflow.updated_at) }}</td>
     <td class="actions">
+      <button
+        v-if="props.workflow.source === 'browse' && props.workflow.has_history"
+        class="link"
+        @click="emit('history')"
+      >历史</button>
       <button class="link" @click="emit('view')">看</button>
       <button class="link" @click="emit('export')">↓</button>
       <button class="link danger" @click="emit('delete')">×</button>
