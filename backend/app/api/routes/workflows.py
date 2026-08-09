@@ -8,7 +8,14 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db_session, get_services
 from app.integrations.comfyui.client import ComfyUIClient
+from app.repositories.generation import WorkflowGenerationConfigRepository
 from app.repositories.workflow import WorkflowRepository
+from app.schemas.generation import (
+    GenerationConfigIn,
+    GenerationConfigListOut,
+    GenerationConfigOut,
+    GenerationConfigSummaryOut,
+)
 from app.schemas.workflow import (
     ConflictOut,
     SyncResultOut,
@@ -45,6 +52,48 @@ def list_workflows(
         item = WorkflowOut.model_validate(w).model_copy(update={"has_history": repo.has_history(w.id)})
         out.append(item)
     return {"items": out}
+
+
+def _config_repo(session: Session = Depends(get_db_session)) -> WorkflowGenerationConfigRepository:
+    return WorkflowGenerationConfigRepository(session)
+
+
+@router.get("/generation-configs", response_model=GenerationConfigListOut)
+def list_generation_configs(
+    config_repo: WorkflowGenerationConfigRepository = Depends(_config_repo),
+) -> dict:
+    items = []
+    for cfg, name in config_repo.list_configured():
+        items.append(GenerationConfigSummaryOut(
+            workflow_id=cfg.workflow_id,
+            workflow_name=name,
+            fields=[f for f in json.loads(cfg.fields_json)],
+        ))
+    return {"items": items}
+
+
+@router.put("/{workflow_id}/generation-config", response_model=GenerationConfigOut)
+def save_generation_config(
+    workflow_id: str,
+    payload: GenerationConfigIn,
+    repo: WorkflowRepository = Depends(_repo),
+    config_repo: WorkflowGenerationConfigRepository = Depends(_config_repo),
+) -> GenerationConfigOut:
+    if repo.get(workflow_id) is None:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    cfg = config_repo.upsert(workflow_id, payload.api_template, [f.model_dump() for f in payload.fields])
+    return GenerationConfigOut.from_model(cfg)
+
+
+@router.get("/{workflow_id}/generation-config", response_model=GenerationConfigOut)
+def get_generation_config(
+    workflow_id: str,
+    config_repo: WorkflowGenerationConfigRepository = Depends(_config_repo),
+) -> GenerationConfigOut:
+    cfg = config_repo.get_by_workflow(workflow_id)
+    if cfg is None:
+        raise HTTPException(status_code=404, detail="Generation config not found")
+    return GenerationConfigOut.from_model(cfg)
 
 
 @router.get("/{workflow_id}", response_model=WorkflowOut)
