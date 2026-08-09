@@ -1,0 +1,29 @@
+# Storage (runtime files)
+storage/
+!storage/**/.gitkeep
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Backend
+backend/.venv/
+backend/__pycache__/
+backend/**/__pycache__/
+backend/*.egg-info/
+
+# Env & secrets
+.env
+.env.local
+*.local
+
+# Logs & caches
+*.log
+*.pyc
+*.sqlite
+*.sqlite-journal
+
+# OS
+.DS_Store
+Thumbs.db
