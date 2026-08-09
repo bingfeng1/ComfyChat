@@ -7,6 +7,11 @@ const routes: RouteRecordRaw[] = [
     name: "workflows",
     component: () => import("@/features/workflows/WorkflowsView.vue"),
   },
+  {
+    path: "/generations",
+    name: "generations",
+    component: () => import("@/features/generations/GenerationsView.vue"),
+  },
 ];
 
 export const router = createRouter({

@@ -57,3 +57,47 @@ export interface WorkflowVersion {
 export interface WorkflowVersionList {
   items: WorkflowVersion[];
 }
+
+export type GenerationStatus = "queued" | "running" | "success" | "failed";
+
+export interface GenerationSummary {
+  id: string;
+  workflow_id: string;
+  workflow_name: string;
+  parameters: Record<string, unknown>;
+  status: GenerationStatus;
+  prompt_id: string;
+  error: string | null;
+  outputs: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface GenerationList {
+  items: GenerationSummary[];
+}
+
+export interface GenerationField {
+  key: string;
+  label: string;
+  type: "text" | "seed";
+  node_id: string;
+  input_name: string;
+  default: string | number | boolean | null;
+  required: boolean;
+}
+
+export interface GenerationConfigSummary {
+  workflow_id: string;
+  workflow_name: string;
+  fields: GenerationField[];
+}
+
+export interface GenerationConfigList {
+  items: GenerationConfigSummary[];
+}
+
+export interface GenerationConfigPayload {
+  api_template: Record<string, unknown>;
+  fields: GenerationField[];
+}

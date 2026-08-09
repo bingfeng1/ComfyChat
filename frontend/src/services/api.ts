@@ -1,5 +1,10 @@
 import type {
   ApiInfo,
+  GenerationConfigList,
+  GenerationConfigPayload,
+  GenerationList,
+  GenerationStatus,
+  GenerationSummary,
   HealthStatus,
   ImportConflict,
   SyncResult,
@@ -56,5 +61,42 @@ export const api = {
       remove: (id: string, version: number) =>
         request(`/workflows/${id}/versions/${version}`, { method: "DELETE" }),
     },
+    generationConfigs: () =>
+      get<GenerationConfigList>(`/workflows/generation-configs`),
+    generationConfig: {
+      get: (id: string) =>
+        get<GenerationConfigPayload & { workflow_id: string; updated_at: string }>(
+          `/workflows/${id}/generation-config`
+        ),
+      save: (id: string, payload: GenerationConfigPayload) =>
+        request(`/workflows/${id}/generation-config`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        }),
+    },
+  },
+  generations: {
+    list: (params?: { status?: GenerationStatus }) => {
+      const sp = new URLSearchParams();
+      if (params?.status) sp.set("status", params.status);
+      const qs = sp.toString() ? `?${sp.toString()}` : "";
+      return get<GenerationList>(`/generations${qs}`);
+    },
+    get: (id: string) => get<GenerationSummary>(`/generations/${id}`),
+    create: async (payload: {
+      workflow_id: string;
+      parameters: Record<string, unknown>;
+    }) => {
+      const res = await request(`/generations`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      return res;
+    },
+    remove: (id: string) => request(`/generations/${id}`, { method: "DELETE" }),
+    imageUrl: (id: string, filename: string) =>
+      `${API_BASE}/generations/${id}/images/${encodeURIComponent(filename)}`,
   },
 };

@@ -3,7 +3,10 @@ import { useRoute } from "vue-router";
 
 const route = useRoute();
 
-const items = [{ to: "/workflows", label: "工作流", icon: "📁" }];
+const items = [
+  { to: "/workflows", label: "工作流", icon: "📁" },
+  { to: "/generations", label: "生成", icon: "🖼" },
+];
 
 function isActive(to: string) {
   return route.path.startsWith(to);
