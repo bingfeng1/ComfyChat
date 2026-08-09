@@ -10,6 +10,7 @@ const emit = defineEmits<{
   export: [];
   delete: [];
   history: [];
+  config: [];
 }>();
 
 function fmtSize(bytes: number) {
@@ -41,6 +42,11 @@ const sourceLabel: Record<string, string> = {
         class="link"
         @click="emit('history')"
       >历史</button>
+      <button
+        v-if="props.workflow.source === 'browse'"
+        class="link"
+        @click="emit('config')"
+      >配置</button>
       <button class="link" @click="emit('view')">看</button>
       <button class="link" @click="emit('export')">↓</button>
       <button class="link danger" @click="emit('delete')">×</button>

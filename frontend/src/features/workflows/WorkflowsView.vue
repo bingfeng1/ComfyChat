@@ -5,6 +5,7 @@ import WorkflowImportButton from "./WorkflowImportButton.vue";
 import WorkflowSyncButton from "./WorkflowSyncButton.vue";
 import WorkflowDetailModal from "./WorkflowDetailModal.vue";
 import WorkflowHistoryModal from "./WorkflowHistoryModal.vue";
+import WorkflowGenerationConfigModal from "./WorkflowGenerationConfigModal.vue";
 import WorkflowRow from "./WorkflowRow.vue";
 import { useWorkflows } from "./useWorkflows";
 import type { WorkflowSummary } from "@/types/api";
@@ -28,6 +29,7 @@ const {
 
 const detail = ref<WorkflowSummary | null>(null);
 const historyOf = ref<WorkflowSummary | null>(null);
+const configOf = ref<WorkflowSummary | null>(null);
 const confirmDelete = ref<WorkflowSummary | null>(null);
 
 const pendingFile = ref<File | null>(null);
@@ -124,6 +126,7 @@ async function onExport(id: string) {
           @export="onExport(wf.id)"
           @delete="confirmDelete = wf"
           @history="historyOf = wf"
+          @config="configOf = wf"
         />
       </tbody>
     </table>
@@ -140,6 +143,14 @@ async function onExport(id: string) {
       :workflow-id="historyOf.id"
       :title="historyOf.name"
       @close="historyOf = null"
+    />
+
+    <WorkflowGenerationConfigModal
+      v-if="configOf"
+      :workflow-id="configOf.id"
+      :title="configOf.name"
+      @close="configOf = null"
+      @saved="doSearch"
     />
 
     <Modal v-if="confirmDelete" title="删除工作流" @close="confirmDelete = null">
