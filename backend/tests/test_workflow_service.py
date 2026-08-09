@@ -141,3 +141,42 @@ def test_import_rename_conflict(engine):
     assert after is before
     assert after.body == '{"y":2}'
     assert after.size_bytes == before.size_bytes
+
+
+def test_sync_archives_old_version_on_change(engine):
+    repo = _repo(engine)
+    service = WorkflowService(repo, FakeBrowseClient([{"name": "a.json", "path": "workflows/a.json", "type": "file", "size": 2}], body="{}"))
+    service.sync()
+    service2 = WorkflowService(repo, FakeBrowseClient([{"name": "a.json", "path": "workflows/a.json", "type": "file", "size": 99}], body='{"n":2}'))
+    result = service2.sync()
+    assert result["browse"]["updated"] == 1
+    assert result["browse"]["updates"] == ["a.json"]
+    row = repo.get_by_source_key("browse", "a.json")
+    assert row.size_bytes == 99
+    assert row.body == '{"n":2}'
+    versions = repo.list_versions(row.id)
+    assert len(versions) == 1
+    assert versions[0].version == 1
+    assert versions[0].body == "{}"
+
+
+def test_sync_archives_multiple_versions_increment(engine):
+    repo = _repo(engine)
+    service = WorkflowService(repo, FakeBrowseClient([{"name": "a.json", "path": "workflows/a.json", "type": "file", "size": 2}], body="{}"))
+    service.sync()
+    service2 = WorkflowService(repo, FakeBrowseClient([{"name": "a.json", "path": "workflows/a.json", "type": "file", "size": 50}], body='{"v":2}'))
+    service2.sync()
+    service3 = WorkflowService(repo, FakeBrowseClient([{"name": "a.json", "path": "workflows/a.json", "type": "file", "size": 99}], body='{"v":3}'))
+    service3.sync()
+    row = repo.get_by_source_key("browse", "a.json")
+    assert [v.version for v in repo.list_versions(row.id)] == [1, 2]
+    assert row.body == '{"v":3}'
+
+
+def test_sync_first_sync_has_no_history(engine):
+    repo = _repo(engine)
+    service = WorkflowService(repo, FakeBrowseClient([{"name": "a.json", "path": "workflows/a.json", "type": "file", "size": 2}], body="{}"))
+    service.sync()
+    row = repo.get_by_source_key("browse", "a.json")
+    assert repo.has_history(row.id) is False
+    assert repo.max_version(row.id) == 0

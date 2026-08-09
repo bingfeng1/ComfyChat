@@ -21,7 +21,7 @@ class WorkflowService:
         self.comfyui = comfyui
 
     def sync(self) -> dict:
-        summary = {"added": 0, "updated": 0, "skipped": 0, "error": None}
+        summary = {"added": 0, "updated": 0, "skipped": 0, "error": None, "updates": []}
         try:
             listing = self.comfyui.list_browse()
         except ComfyUIError as exc:
@@ -36,19 +36,25 @@ class WorkflowService:
             body = self.comfyui.read_userdata_json(name)
             if body is None:
                 continue
+            display = name[:-5] if name.endswith(".json") else name
             existing = self.repo.get_by_source_key("browse", name)
-            if existing is not None and existing.size_bytes == size:
+            if existing is None:
+                self.repo.upsert(
+                    source="browse", source_key=name, name=display,
+                    original_name=name, body=body, size_bytes=size,
+                )
+                summary["added"] += 1
+                continue
+            if existing.size_bytes == size:
                 summary["skipped"] += 1
                 continue
-            display = name[:-5] if name.endswith(".json") else name
+            self.repo.archive_version(existing.id, existing.name, existing.size_bytes, existing.body)
             self.repo.upsert(
                 source="browse", source_key=name, name=display,
                 original_name=name, body=body, size_bytes=size,
             )
-            if existing is not None:
-                summary["updated"] += 1
-            else:
-                summary["added"] += 1
+            summary["updated"] += 1
+            summary["updates"].append(name)
 
         return {"synced_at": _utcnow(), "browse": summary}
 
