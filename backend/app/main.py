@@ -4,7 +4,7 @@ from typing import Optional
 
 from fastapi import FastAPI
 
-from app.api.routes import health, workflows
+from app.api.routes import generations, health, workflows
 from app.core import database
 from app.core.config import Settings
 from app.integrations.comfyui.client import ComfyUIClient
@@ -25,6 +25,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
 
     app.include_router(health.router)
     app.include_router(workflows.router)
+    app.include_router(generations.router)
     return app
 
 
