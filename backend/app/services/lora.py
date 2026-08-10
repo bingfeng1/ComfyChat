@@ -158,13 +158,17 @@ class LoraService:
         self.comfyui = comfyui
         self.settings = settings
 
-    def list_installed(self) -> list[str]:
-        """从 ComfyUI object_info 拉全部已安装 LoRA 文件名(去重)。"""
+    def list_installed(self) -> Optional[list[str]]:
+        """从 ComfyUI object_info 拉全部已安装 LoRA 文件名(去重)。
+
+        ComfyUI 不可达(如 get_object_info 抛错)时返回 None,调用方应据此
+        判定同步失败并保留本地缓存,而非当作空列表清空 loras 表。
+        """
         names: set[str] = set()
         try:
             info = self.comfyui.get_object_info(["LoraLoader", "LoraLoaderModelOnly"])
         except Exception:
-            return sorted(names)
+            return None
         for node_type in ("LoraLoader", "LoraLoaderModelOnly"):
             node = (info or {}).get(node_type) or {}
             entry = (((node.get("input") or {}).get("required") or {}).get("lora_name") or [])
@@ -201,6 +205,8 @@ class LoraService:
 
     def sync(self) -> dict:
         installed = self.list_installed()
+        if installed is None:
+            return {"total": 0, "error": "ComfyUI 不可达"}
         known: set[str] = set()
         collected: dict[str, set[str]] = {}
         if self.workflow_repo is not None:

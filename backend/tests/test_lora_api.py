@@ -26,6 +26,14 @@ def _patch_comfy(monkeypatch, loras):
     monkeypatch.setattr(ComfyUIClient, "get_object_info", FakeComfy.get_object_info)
 
 
+def _patch_comfy_unreachable(monkeypatch):
+    class RaisingComfy:
+        def get_object_info(self, node_types=None):
+            raise ConnectionError("ComfyUI unreachable")
+    from app.integrations.comfyui.client import ComfyUIClient
+    monkeypatch.setattr(ComfyUIClient, "get_object_info", RaisingComfy.get_object_info)
+
+
 def test_get_lora_returns_items(tmp_path, monkeypatch):
     _patch_comfy(monkeypatch, ["a.safetensors"])
     client = _client(tmp_path)
@@ -43,3 +51,11 @@ def test_sync_endpoint(tmp_path, monkeypatch):
     assert r.status_code == 200, r.text
     names = {i["name"] for i in r.json()["items"]}
     assert names == {"x.safetensors", "y.safetensors"}
+
+
+def test_get_lora_returns_503_when_comfy_unreachable(tmp_path, monkeypatch):
+    _patch_comfy_unreachable(monkeypatch)
+    client = _client(tmp_path)
+    r = client.get("/lora")
+    assert r.status_code == 503
+    assert r.json()["detail"] == "ComfyUI 不可达"

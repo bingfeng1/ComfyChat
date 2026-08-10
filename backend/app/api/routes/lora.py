@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db_session, get_services, get_settings
@@ -44,11 +44,15 @@ def _out(session: Session) -> LoraListOut:
 
 @router.get("", response_model=LoraListOut)
 def list_lora(service: LoraService = Depends(_service)) -> LoraListOut:
-    service.sync()
+    result = service.sync()
+    if "error" in result:
+        raise HTTPException(status_code=503, detail=result["error"])
     return _out(service.repo.session)
 
 
 @router.post("/sync", response_model=LoraListOut)
 def sync_lora(service: LoraService = Depends(_service)) -> LoraListOut:
-    service.sync()
+    result = service.sync()
+    if "error" in result:
+        raise HTTPException(status_code=503, detail=result["error"])
     return _out(service.repo.session)

@@ -102,13 +102,18 @@ class FakeComfy:
         }
 
 
-def _mk_service(session, loras, settings_overrides=None):
+class RaisingComfy:
+    def get_object_info(self, node_types=None):
+        raise ConnectionError("ComfyUI unreachable")
+
+
+def _mk_service(session, loras, settings_overrides=None, comfy=None):
     from app.core.config import Settings
     settings = Settings(**(settings_overrides or {}))
     return LoraService(
         LoraRepository(session),
         workflow_repo=None,
-        comfyui=FakeComfy(loras),
+        comfyui=comfy if comfy is not None else FakeComfy(loras),
         settings=settings,
     )
 
@@ -123,6 +128,23 @@ def _write_safetensors(path, header: dict):
 def test_list_installed_from_object_info(session):
     service = _mk_service(session, ["a.safetensors", "b.safetensors", "a.safetensors"])
     assert sorted(service.list_installed()) == ["a.safetensors", "b.safetensors"]
+
+
+def test_list_installed_returns_none_on_error(session):
+    service = _mk_service(session, [], comfy=RaisingComfy())
+    assert service.list_installed() is None
+
+
+def test_sync_preserves_cache_when_comfy_unreachable(session):
+    service = _mk_service(session, [], comfy=RaisingComfy())
+    service.repo.upsert_lora("keep.safetensors")
+
+    result = service.sync()
+
+    assert result["error"] == "ComfyUI 不可达"
+    assert result["total"] == 0
+    items = dict(service.repo.list_all())
+    assert items == {"keep.safetensors": []}
 
 
 def test_sync_populates_and_clears_stale(session):
