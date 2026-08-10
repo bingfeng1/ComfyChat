@@ -6,7 +6,13 @@ import pytest
 from app.core.config import Settings
 from app.models.generation import Generation
 from app.repositories.generation import GenerationRepository, WorkflowGenerationConfigRepository
-from app.services.generation import GenerationService, apply_parameters
+from app.services.generation import (
+    GenerationService,
+    apply_parameters,
+    discover_fields,
+    infer_field_type,
+    workflow_to_api_template,
+)
 
 
 TEMPLATE = {
@@ -187,3 +193,78 @@ def test_reconcile_finalizes_lost_tasks(session, tmp_path):
 
     assert repo.get(g1.id).status == "success"
     assert repo.get(g2.id).status == "failed"
+
+
+UI_BODY = {
+    "nodes": [
+        {
+            "id": 7,
+            "type": "CLIPTextEncode",
+            "inputs": [
+                {"name": "clip", "localized_name": "clip", "link": 1},
+                {"name": "text", "localized_name": "文本", "widget": {"name": "text"}},
+            ],
+            "widgets_values": ["一只猫"],
+        },
+        {
+            "id": 16,
+            "type": "KSampler",
+            "inputs": [
+                {"name": "model", "localized_name": "模型", "link": 2},
+                {"name": "seed", "localized_name": "种子", "widget": {"name": "seed"}},
+                {"name": "steps", "localized_name": "步数", "widget": {"name": "steps"}},
+            ],
+            "widgets_values": [42, 20],
+        },
+    ],
+    "last_node_id": 16,
+}
+
+
+def test_workflow_to_api_template_converts_ui_format():
+    api = workflow_to_api_template(UI_BODY)
+    assert api["7"] == {
+        "class_type": "CLIPTextEncode",
+        "inputs": {"text": "一只猫"},
+    }
+    assert api["16"] == {
+        "class_type": "KSampler",
+        "inputs": {"seed": 42, "steps": 20},
+    }
+
+
+def test_workflow_to_api_template_handles_empty_body():
+    assert workflow_to_api_template({}) == {}
+
+
+def test_infer_field_type_seed_number_text():
+    assert infer_field_type("seed", 42) == "seed"
+    assert infer_field_type("seed", "42") == "seed"
+    assert infer_field_type("steps", 20) == "number"
+    assert infer_field_type("cfg", 1.5) == "number"
+    assert infer_field_type("text", "a") == "text"
+    assert infer_field_type("batch_size", True) == "text"
+
+
+def test_discover_fields_returns_widget_candidates():
+    fields = discover_fields(UI_BODY)
+    assert len(fields) == 3
+    text = next(f for f in fields if f["key"] == "text")
+    assert text["label"] == "文本"
+    assert text["node_id"] == "7"
+    assert text["input_name"] == "text"
+    assert text["default"] == "一只猫"
+    assert text["type"] == "text"
+    seed = next(f for f in fields if f["key"] == "seed")
+    assert seed["label"] == "种子"
+    assert seed["type"] == "seed"
+    steps = next(f for f in fields if f["key"] == "steps")
+    assert steps["type"] == "number"
+    assert steps["default"] == 20
+
+
+def test_discover_fields_skips_link_inputs():
+    fields = discover_fields(UI_BODY)
+    keys = {f["key"] for f in fields}
+    assert "clip" not in keys
+    assert "model" not in keys

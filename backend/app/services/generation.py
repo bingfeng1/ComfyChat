@@ -22,6 +22,65 @@ def _utcnow() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def workflow_to_api_template(body_json: dict) -> dict:
+    """把 ComfyUI UI 格式工作流 body 转成 API 格式 dict(/prompt 用)。"""
+    result: dict = {}
+    for node in body_json.get("nodes", []):
+        node_id = str(node["id"])
+        inputs: dict = {}
+        widget_names = [i["name"] for i in node.get("inputs", []) if i.get("widget")]
+        widget_values = node.get("widgets_values") or []
+        for idx, name in enumerate(widget_names):
+            value = widget_values[idx] if idx < len(widget_values) else None
+            inputs[name] = value
+        result[node_id] = {"class_type": node["type"], "inputs": inputs}
+    return result
+
+
+def infer_field_type(widget_name: str, value) -> str:
+    """启发式推断字段类型: seed→'seed'; 数值→'number'; 否则 'text'。"""
+    if widget_name.lower() == "seed":
+        return "seed"
+    if isinstance(value, bool):
+        return "text"
+    if isinstance(value, (int, float)):
+        return "number"
+    return "text"
+
+
+def discover_fields(body_json: dict) -> list[dict]:
+    """从 UI 格式 body 返回候选字段(形状与 GenerationField 一致)。
+
+    只为值类型是标量(str/int/float/bool/None)的 widget 输入生成候选。
+    连线输入(带 'link')跳过。
+    """
+    candidates: list[dict] = []
+    for node in body_json.get("nodes", []):
+        node_id = str(node["id"])
+        node_type = node.get("type", "")
+        widget_names = [i["name"] for i in node.get("inputs", []) if i.get("widget")]
+        widget_values = node.get("widgets_values") or []
+        for idx, name in enumerate(widget_names):
+            value = widget_values[idx] if idx < len(widget_values) else None
+            if not isinstance(value, (str, int, float, bool)) and value is not None:
+                continue
+            label = f"[{node_type}] {name}"
+            for i in node.get("inputs", []):
+                if i.get("name") == name and i.get("localized_name"):
+                    label = i["localized_name"]
+                    break
+            candidates.append({
+                "key": name,
+                "label": label,
+                "type": infer_field_type(name, value),
+                "node_id": node_id,
+                "input_name": name,
+                "default": value,
+                "required": False,
+            })
+    return candidates
+
+
 def apply_parameters(
     api_template: dict,
     fields: list[dict],
