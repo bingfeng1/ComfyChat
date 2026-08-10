@@ -402,7 +402,7 @@ function paramDisplay(f: GenerationField): string {
           <el-input
             v-else
             type="textarea"
-            :rows="3"
+            :rows="8"
             :model-value="values[f.key]"
             @update:model-value="(v: string) => values[f.key] = v ?? ''"
           />
