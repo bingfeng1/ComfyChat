@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import Modal from "@/components/Modal.vue";
 import { api } from "@/services/api";
 import type { GenerationConfigSummary, GenerationField, GenerationSummary } from "@/types/api";
@@ -183,6 +183,21 @@ function onWorkflowChange(id: string | number) {
   step.value = 1;
 }
 
+// 兜底: 字段就绪后,确保每个 seed 字段的随机标志都有显式布尔值(默认 false)
+watch(
+  fields,
+  () => {
+    if (!props.preset) {
+      for (const f of fields.value) {
+        if (f.type === "seed" && randomFlags.value[`${f.key}_random`] === undefined) {
+          randomFlags.value[`${f.key}_random`] = false;
+        }
+      }
+    }
+  },
+  { immediate: true },
+);
+
 function next() {
   if (!canProceed.value) return;
   if (step.value < totalSteps.value) step.value++;
@@ -345,7 +360,10 @@ function paramDisplay(f: GenerationField): string {
         >
           <template v-if="f.type === 'seed'">
             <div class="cc-seed-row">
-              <el-checkbox v-model="randomFlags[`${f.key}_random`]">随机</el-checkbox>
+              <el-checkbox
+                :model-value="!!randomFlags[`${f.key}_random`]"
+                @update:model-value="(v: boolean) => randomFlags[`${f.key}_random`] = v"
+              >随机</el-checkbox>
               <el-input-number
                 v-if="!randomFlags[`${f.key}_random`]"
                 :model-value="values[f.key] as number | undefined"
