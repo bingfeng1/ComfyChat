@@ -301,3 +301,65 @@ def test_apply_parameters_accepts_number():
     )
     assert filled["16"]["inputs"]["steps"] == 30
     assert effective["steps"] == 30
+
+KSAMPLER_UI = {
+    "nodes": [
+        {
+            "id": 16,
+            "type": "KSampler",
+            "inputs": [
+                {"name": "model", "localized_name": "模型", "link": 2},
+                {"name": "seed", "localized_name": "种子", "widget": {"name": "seed"}},
+                {"name": "steps", "localized_name": "步数", "widget": {"name": "steps"}},
+                {"name": "cfg", "localized_name": "cfg", "widget": {"name": "cfg"}},
+                {"name": "sampler_name", "localized_name": "采样器", "widget": {"name": "sampler_name"}},
+            ],
+            "widgets_values": [89240564304993, "fixed", 9, 1, "euler"],
+        },
+    ]
+}
+
+OBJ_INFO = {
+    "KSampler": {
+        "input": {
+            "required": {
+                "seed": ["INT", {"default": 0, "min": 0, "max": 18446744073709551615, "control_after_generate": True}],
+                "steps": ["INT", {"default": 20, "min": 1, "max": 10000}],
+                "cfg": ["FLOAT", {"default": 8.0, "min": 0.0, "max": 100.0, "step": 0.1}],
+                "sampler_name": [["euler", "lcm", "ddim"], {"default": "euler"}],
+            }
+        }
+    }
+}
+
+
+def test_workflow_to_api_template_skips_control_after_generate():
+    api = workflow_to_api_template(KSAMPLER_UI)
+    assert api["16"]["inputs"]["seed"] == 89240564304993
+    assert api["16"]["inputs"]["steps"] == 9
+    assert api["16"]["inputs"]["cfg"] == 1
+    assert api["16"]["inputs"]["sampler_name"] == "euler"
+    assert len(api["16"]["inputs"]) == 4
+
+
+def test_discover_fields_uses_object_info_metadata():
+    fields = discover_fields(KSAMPLER_UI, OBJ_INFO)
+    steps = next(f for f in fields if f["key"] == "steps")
+    assert steps["min"] == 1
+    assert steps["max"] == 10000
+    assert steps["type"] == "number"
+    sampler = next(f for f in fields if f["key"] == "sampler_name")
+    assert sampler["type"] == "select"
+    assert sampler["options"] == ["euler", "lcm", "ddim"]
+    assert sampler["default"] == "euler"
+    seed = next(f for f in fields if f["key"] == "seed")
+    assert seed["type"] == "seed"
+
+
+def test_discover_fields_falls_back_without_object_info():
+    fields = discover_fields(KSAMPLER_UI)
+    steps = next(f for f in fields if f["key"] == "steps")
+    assert steps["type"] == "number"
+    sampler = next(f for f in fields if f["key"] == "sampler_name")
+    assert sampler["type"] == "text"
+    assert "options" not in sampler

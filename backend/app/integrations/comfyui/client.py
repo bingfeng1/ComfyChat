@@ -93,3 +93,21 @@ class ComfyUIClient:
     def get_queue(self) -> dict:
         response = self._request("get", "/queue")
         return response.json()
+
+    def get_object_info(self, node_types: list[str] | None = None) -> dict:
+        """拉取节点 schema。node_types 为 None 时返回全部。
+
+        单个节点拉取路径: /object_info/{node_type}。若 ComfyUI 不可达,抛 ComfyUIError。
+        """
+        if node_types:
+            result: dict = {}
+            for nt in node_types:
+                try:
+                    data = self._request("get", f"/object_info/{nt}").json()
+                except ComfyUIError:
+                    continue
+                if nt in data:
+                    result[nt] = data[nt]
+            return result
+        response = self._request("get", "/object_info")
+        return response.json()

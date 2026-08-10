@@ -11,11 +11,15 @@ from app.models.generation import Generation, WorkflowGenerationConfig
 class GenerationField(BaseModel):
     key: str
     label: str
-    type: str = Field(pattern="^(text|seed|number)$")
+    type: str = Field(pattern="^(text|seed|number|select)$")
     node_id: str
     input_name: str
     default: Any = None
     required: bool = False
+    min: float | None = None
+    max: float | None = None
+    step: float | None = None
+    options: list[str] | None = None
 
 
 class GenerationConfigIn(BaseModel):

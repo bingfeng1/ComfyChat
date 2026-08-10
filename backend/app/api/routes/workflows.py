@@ -102,13 +102,21 @@ def get_generation_config(
 def discover_generation_config(
     workflow_id: str,
     repo: WorkflowRepository = Depends(_repo),
+    services: dict = Depends(get_services),
 ) -> GenerationDiscoverOut:
     wf = repo.get(workflow_id)
     if wf is None:
         raise HTTPException(status_code=404, detail="Workflow not found")
     body_json = json.loads(wf.body)
-    api_template = workflow_to_api_template(body_json)
-    fields = discover_fields(body_json)
+    node_types = sorted({str(n.get("type", "")) for n in body_json.get("nodes", []) if n.get("type")})
+    object_info = None
+    if node_types:
+        try:
+            object_info = services["comfyui"].get_object_info(node_types)
+        except Exception:
+            object_info = None
+    api_template = workflow_to_api_template(body_json, object_info)
+    fields = discover_fields(body_json, object_info)
     seen: set[str] = set()
     for f in fields:
         base = f["key"]

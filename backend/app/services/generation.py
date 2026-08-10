@@ -22,7 +22,72 @@ def _utcnow() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def workflow_to_api_template(body_json: dict) -> dict:
+_CONTROL_TOKENS = {"fixed", "randomize", "increment", "decrement"}
+
+
+def _object_info_schema(object_info: dict | None, node_type: str, input_name: str) -> dict | None:
+    """从 ComfyUI /object_info 提取单个 input 的 schema 元数据(无则 None)。
+
+    返回 dict 含可选的 min/max/step/options/control_after_generate。
+    COMBO 类型的 options 来自 entry[0](列表),会并入返回的 dict。
+    """
+    if not object_info:
+        return None
+    node = object_info.get(node_type)
+    if not node:
+        return None
+    inp = node.get("input") or {}
+    for bucket in ("required", "optional"):
+        entry = (inp.get(bucket) or {}).get(input_name)
+        if entry is None:
+            continue
+        meta: dict = {}
+        if isinstance(entry[0], list):
+            meta["options"] = entry[0]
+        if len(entry) > 1 and isinstance(entry[1], dict):
+            meta.update(entry[1])
+        return meta
+    return None
+
+
+def _align_widgets(
+    widget_names: list[str],
+    widget_values: list,
+    object_info: dict | None,
+    node_type: str,
+) -> list[tuple[str, object]]:
+    """把 widget 输入名与 widgets_values 对齐,处理 control_after_generate 占位。
+
+    ComfyUI 里带 control_after_generate 的输入(如 seed)在 widgets_values 中
+    会多占一位('fixed'/'randomize')。有 schema 时用 control_after_generate 标志,
+    无 schema 时用值启发式跳过 control token。
+    """
+    pairs: list[tuple[str, object]] = []
+    vi = 0
+    for name in widget_names:
+        if vi >= len(widget_values):
+            pairs.append((name, None))
+            continue
+        value = widget_values[vi]
+        schema = _object_info_schema(object_info, node_type, name)
+        has_control = bool(schema and schema.get("control_after_generate"))
+        vi += 1
+        if has_control and vi < len(widget_values):
+            token = widget_values[vi]
+            if isinstance(token, str) and token.lower() in _CONTROL_TOKENS:
+                vi += 1
+        elif (
+            name.lower() == "seed"
+            and vi < len(widget_values)
+            and isinstance(widget_values[vi], str)
+            and widget_values[vi].lower() in _CONTROL_TOKENS
+        ):
+            vi += 1
+        pairs.append((name, value))
+    return pairs
+
+
+def workflow_to_api_template(body_json: dict, object_info: dict | None = None) -> dict:
     """把 ComfyUI UI 格式工作流 body 转成 API 格式 dict(/prompt 用)。"""
     result: dict = {}
     for node in body_json.get("nodes", []):
@@ -30,15 +95,28 @@ def workflow_to_api_template(body_json: dict) -> dict:
         inputs: dict = {}
         widget_names = [i["name"] for i in node.get("inputs", []) if i.get("widget")]
         widget_values = node.get("widgets_values") or []
-        for idx, name in enumerate(widget_names):
-            value = widget_values[idx] if idx < len(widget_values) else None
+        for name, value in _align_widgets(widget_names, widget_values, object_info, node.get("type", "")):
             inputs[name] = value
         result[node_id] = {"class_type": node["type"], "inputs": inputs}
     return result
 
 
-def infer_field_type(widget_name: str, value) -> str:
-    """启发式推断字段类型: seed→'seed'; 数值→'number'; 否则 'text'。"""
+def infer_field_type(
+    widget_name: str, value, object_info: dict | None = None, node_type: str = ""
+) -> str:
+    """推断字段类型: schema 优先; 否则 seed→'seed'; 数值→'number'; COMBO→'select'。
+
+    返回 'text' | 'seed' | 'number' | 'select'。
+    """
+    schema = _object_info_schema(object_info, node_type, widget_name)
+    if schema:
+        if schema.get("control_after_generate"):
+            return "seed"
+        if "options" in schema:
+            return "select"
+        if widget_name.lower() == "seed":
+            return "seed"
+        # INT/FLOAT 类型名在 entry[0],不在 schema dict;用值启发式兜底
     if widget_name.lower() == "seed":
         return "seed"
     if isinstance(value, bool):
@@ -48,11 +126,27 @@ def infer_field_type(widget_name: str, value) -> str:
     return "text"
 
 
-def discover_fields(body_json: dict) -> list[dict]:
+def _field_meta(object_info: dict | None, node_type: str, input_name: str) -> dict:
+    """从 object_info 提取 min/max/step/options 等元数据,无则空 dict。"""
+    schema = _object_info_schema(object_info, node_type, input_name)
+    if not schema:
+        return {}
+    meta: dict = {}
+    for key in ("min", "max", "step", "default"):
+        if key in schema and isinstance(schema[key], (int, float)):
+            meta[key] = schema[key]
+    if "options" in schema:
+        options = schema["options"]
+        if isinstance(options, list) and all(isinstance(o, str) for o in options):
+            meta["options"] = options
+    return meta
+
+
+def discover_fields(body_json: dict, object_info: dict | None = None) -> list[dict]:
     """从 UI 格式 body 返回候选字段(形状与 GenerationField 一致)。
 
     只为值类型是标量(str/int/float/bool/None)的 widget 输入生成候选。
-    连线输入(带 'link')跳过。
+    连线输入(带 'link')跳过。带 object_info 时补 min/max/step/options 与类型。
     """
     candidates: list[dict] = []
     for node in body_json.get("nodes", []):
@@ -60,8 +154,7 @@ def discover_fields(body_json: dict) -> list[dict]:
         node_type = node.get("type", "")
         widget_names = [i["name"] for i in node.get("inputs", []) if i.get("widget")]
         widget_values = node.get("widgets_values") or []
-        for idx, name in enumerate(widget_names):
-            value = widget_values[idx] if idx < len(widget_values) else None
+        for name, value in _align_widgets(widget_names, widget_values, object_info, node_type):
             if not isinstance(value, (str, int, float, bool)) and value is not None:
                 continue
             label = f"[{node_type}] {name}"
@@ -69,15 +162,17 @@ def discover_fields(body_json: dict) -> list[dict]:
                 if i.get("name") == name and i.get("localized_name"):
                     label = i["localized_name"]
                     break
-            candidates.append({
+            candidate: dict = {
                 "key": name,
                 "label": label,
-                "type": infer_field_type(name, value),
+                "type": infer_field_type(name, value, object_info, node_type),
                 "node_id": node_id,
                 "input_name": name,
                 "default": value,
                 "required": False,
-            })
+            }
+            candidate.update(_field_meta(object_info, node_type, name))
+            candidates.append(candidate)
     return candidates
 
 
