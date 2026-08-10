@@ -49,16 +49,16 @@ def create_generation(
 
 @router.get("", response_model=GenerationListOut)
 def list_generations(
-    status_filter: str | None = None,
+    status: str | None = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(15, ge=1, le=100),
     service: GenerationService = Depends(_service),
 ) -> GenerationListOut:
     service.reconcile()
     items = service.gen_repo.list(
-        status=status_filter, page=page, page_size=page_size
+        status=status, page=page, page_size=page_size
     )
-    total = service.gen_repo.count(status=status_filter)
+    total = service.gen_repo.count(status=status)
     return GenerationListOut(
         items=[GenerationOut.from_model(g) for g in items],
         total=total,

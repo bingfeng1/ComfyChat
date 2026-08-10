@@ -1,3 +1,5 @@
+import pytest
+
 from app.repositories.generation import GenerationRepository
 
 
@@ -75,7 +77,26 @@ def test_count_ignores_pagination(session):
     for i in range(20):
         repo.create("wf1", "z-image", {"i": i}, "success", f"p{i}")
     assert repo.count() == 20
-    assert repo.count() == 20  # 与 page/page_size 无关
+    # count() takes only `status`; passing page/page_size would raise TypeError,
+    # which is the contract — see test_count_signature_rejects_pagination below.
+
+
+def test_count_with_status_filter(session):
+    repo = _mk_repo(session)
+    for i in range(7):
+        repo.create("wf1", "z-image", {"i": i}, "success", f"p{i}")
+    for i in range(4):
+        repo.create("wf1", "z-image", {"i": i}, "queued", f"q{i}")
+    assert repo.count() == 11
+    assert repo.count(status="success") == 7
+    assert repo.count(status="queued") == 4
+    assert repo.count(status="failed") == 0
+
+
+def test_count_signature_rejects_pagination(session):
+    repo = _mk_repo(session)
+    with pytest.raises(TypeError):
+        repo.count(page=1, page_size=5)
 
 
 def test_list_with_status_filter_paginates(session):

@@ -50,6 +50,8 @@ class GenerationRepository:
             page = 1
         if page_size < 1:
             page_size = 15
+        elif page_size > 100:
+            page_size = 100
         stmt = select(Generation)
         if status:
             stmt = stmt.where(Generation.status == status)
