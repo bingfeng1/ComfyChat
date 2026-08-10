@@ -399,6 +399,26 @@ def test_discover_fields_excludes_loader_inputs():
     assert "lora_name" not in keys
     assert "strength_model" in keys
 
+
+SHIFT_BODY = {
+    "nodes": [
+        {
+            "id": 15,
+            "type": "ModelSamplingAuraFlow",
+            "inputs": [
+                {"name": "model", "localized_name": "模型", "link": 1},
+                {"name": "shift", "localized_name": "移位", "widget": {"name": "shift"}},
+            ],
+            "widgets_values": [1.73],
+        },
+    ]
+}
+
+
+def test_discover_fields_excludes_model_sampling_shift():
+    fields = discover_fields(SHIFT_BODY)
+    assert fields == []
+
 COND_BODY = {
     "nodes": [
         {

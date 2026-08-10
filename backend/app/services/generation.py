@@ -38,6 +38,12 @@ _LOADER_INPUTS: dict[str, set[str]] = {
     "CheckpointLoaderSimple": {"ckpt_name"},
     "LoraLoader": {"model", "clip", "lora_name"},
     "LoraLoaderModelOnly": {"model", "lora_name"},
+    "ModelSamplingAuraFlow": {"shift"},
+    "ModelSamplingContinuousEDM": {"shift"},
+    "ModelSamplingSD3": {"shift"},
+    "ModelSamplingDiscrete": {"sampling"},
+    "ModelSamplingStableCascade": {"shift"},
+    "ModelSamplingAdvanced": {"sampling", "zsnr"},
 }
 
 
