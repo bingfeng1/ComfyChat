@@ -19,3 +19,4 @@ class Settings(BaseSettings):
     database_url: str = Field(default="sqlite:///./storage/data/comfychat.db")
     storage_root: Path = Field(default=Path("./storage"))
     comfyui_userdata_dir: Optional[Path] = Field(default=None)
+    comfyui_loras_dir: Optional[Path] = Field(default=None)
