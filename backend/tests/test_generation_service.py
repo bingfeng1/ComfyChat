@@ -396,8 +396,46 @@ def test_discover_fields_excludes_loader_inputs():
     assert "clip_name" not in keys
     assert "type" not in keys
     assert "device" not in keys
-    assert "lora_name" not in keys
     assert "strength_model" in keys
+
+
+def test_discover_fields_keeps_lora_name():
+    fields = discover_fields(LOADER_BODY)
+    lora = next((f for f in fields if f["key"] == "lora_name"), None)
+    assert lora is not None
+    assert lora["node_id"] == "6"
+    assert lora["default"] == "mumu_20.safetensors"
+
+
+def test_discover_lora_name_is_select_with_object_info():
+    body = {
+        "nodes": [
+            {
+                "id": 6,
+                "type": "LoraLoaderModelOnly",
+                "inputs": [
+                    {"name": "model", "localized_name": "模型", "link": 1},
+                    {"name": "lora_name", "localized_name": "LoRA名称", "widget": {"name": "lora_name"}},
+                    {"name": "strength_model", "localized_name": "模型强度", "widget": {"name": "strength_model"}},
+                ],
+                "widgets_values": ["mumu_20.safetensors", 0],
+            },
+        ]
+    }
+    obj_info = {
+        "LoraLoaderModelOnly": {
+            "input": {
+                "required": {
+                    "lora_name": [["mumu_20.safetensors", "other.safetensors"], {}],
+                    "strength_model": ["FLOAT", {"default": 1.0, "min": -100.0, "max": 100.0}],
+                }
+            }
+        }
+    }
+    fields = discover_fields(body, obj_info)
+    lora = next(f for f in fields if f["key"] == "lora_name")
+    assert lora["type"] == "select"
+    assert lora["options"] == ["mumu_20.safetensors", "other.safetensors"]
 
 
 SHIFT_BODY = {
