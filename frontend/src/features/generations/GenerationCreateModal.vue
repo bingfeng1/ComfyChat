@@ -4,8 +4,11 @@ import Modal from "@/components/Modal.vue";
 import { api } from "@/services/api";
 import type { GenerationConfigSummary, GenerationField, GenerationSummary } from "@/types/api";
 
-const props = defineProps<{ preset?: GenerationSummary | null }>();
-const emit = defineEmits<{ close: [] }>();
+const props = defineProps<{
+  preset?: GenerationSummary | null;
+  preselectWorkflowId?: string;
+}>();
+const emit = defineEmits<{ close: []; generated: [] }>();
 
 const loading = ref(true);
 const fetchError = ref<string | null>(null);
@@ -147,8 +150,16 @@ onMounted(async () => {
   try {
     configs.value = (await api.workflows.generationConfigs()).items;
     if (configs.value.length > 0) {
-      const presetId = props.preset?.workflow_id ?? configs.value[0].workflow_id;
-      selectWorkflow(presetId);
+      if (
+        props.preselectWorkflowId &&
+        configs.value.some((c) => c.workflow_id === props.preselectWorkflowId)
+      ) {
+        selectWorkflow(props.preselectWorkflowId);
+        step.value = needsFieldsStep.value ? 2 : totalSteps.value;
+      } else {
+        const presetId = props.preset?.workflow_id ?? configs.value[0].workflow_id;
+        selectWorkflow(presetId);
+      }
     }
   } catch (err) {
     fetchError.value = err instanceof Error ? err.message : String(err);
@@ -225,6 +236,7 @@ async function submit() {
       }
     }
     await api.generations.create({ workflow_id: workflowId.value, parameters });
+    emit("generated");
     emit("close");
   } catch (err) {
     submitError.value = err instanceof Error ? err.message : String(err);
