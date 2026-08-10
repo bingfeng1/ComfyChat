@@ -203,6 +203,9 @@ function paramDisplay(f: GenerationField): string {
                 v-if="!randomFlags[`${f.key}_random`]"
                 :model-value="values[f.key] as number | undefined"
                 @update:model-value="(v: number | undefined) => values[f.key] = (v ?? 0)"
+                :min="f.min"
+                :max="f.max"
+                :step="f.step"
                 controls-position="right"
               />
             </div>
@@ -211,9 +214,25 @@ function paramDisplay(f: GenerationField): string {
             v-else-if="f.type === 'number'"
             :model-value="values[f.key] as number | undefined"
             @update:model-value="(v: number | undefined) => values[f.key] = (v ?? 0)"
+            :min="f.min"
+            :max="f.max"
+            :step="f.step"
             controls-position="right"
             style="width: 100%"
           />
+          <el-select
+            v-else-if="f.type === 'select'"
+            :model-value="values[f.key]"
+            @update:model-value="(v: string | number) => values[f.key] = v"
+            style="width: 100%"
+          >
+            <el-option
+              v-for="opt in f.options ?? []"
+              :key="opt"
+              :value="opt"
+              :label="opt"
+            />
+          </el-select>
           <el-input
             v-else
             type="textarea"

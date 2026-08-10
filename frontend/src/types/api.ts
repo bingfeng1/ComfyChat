@@ -80,11 +80,15 @@ export interface GenerationList {
 export interface GenerationField {
   key: string;
   label: string;
-  type: "text" | "seed" | "number";
+  type: "text" | "seed" | "number" | "select";
   node_id: string;
   input_name: string;
   default: string | number | boolean | null;
   required: boolean;
+  min?: number;
+  max?: number;
+  step?: number;
+  options?: string[];
 }
 
 export interface GenerationConfigSummary {

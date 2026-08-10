@@ -18,7 +18,7 @@ onMounted(async () => {
   removed.value = new Set();
   try {
     const existing = await api.workflows.generationConfig.get(props.workflowId);
-    if (existing) {
+    if (existing && existing.fields.length > 0) {
       fields.value = existing.fields;
       apiTemplate.value = existing.api_template;
     } else {
@@ -79,6 +79,7 @@ async function save() {
           :model-value="!removed.has(f.key)"
           @update:model-value="(v: boolean) => toggleField(f.key, v)"
         />
+        <el-tag size="small" type="info" class="cc-type-tag">{{ f.type }}</el-tag>
         <span class="cc-label">{{ f.label }}</span>
         <span class="cc-key">{{ f.key }}</span>
         <el-input
@@ -90,6 +91,12 @@ async function save() {
         <el-checkbox v-model="f.required" class="cc-required" size="small">
           必填
         </el-checkbox>
+        <span v-if="f.options && f.options.length" class="cc-range" :title="f.options.join(', ')">
+          {{ f.options.length }} 项可选
+        </span>
+        <span v-else-if="f.type === 'number' || f.type === 'seed'" class="cc-range">
+          {{ f.min ?? "—" }} ~ {{ f.max ?? "—" }}{{ f.step ? ` 步进 ${f.step}` : "" }}
+        </span>
       </div>
 
       <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
@@ -139,5 +146,13 @@ async function save() {
 }
 .cc-label-edit {
   width: 160px;
+}
+.cc-type-tag {
+  flex-shrink: 0;
+}
+.cc-range {
+  color: #94a3b8;
+  font-size: 0.75rem;
+  white-space: nowrap;
 }
 </style>
