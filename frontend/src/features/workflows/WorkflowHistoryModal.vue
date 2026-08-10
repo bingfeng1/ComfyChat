@@ -59,39 +59,48 @@ watch(() => props.workflowId, load, { immediate: true });
 
 <template>
   <Modal :title="`历史工作流：${props.title}`" @close="emit('close')">
-    <div v-if="error" class="err">{{ error }}</div>
+    <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
 
-    <div v-if="viewBody || viewError" class="viewer">
-      <button class="link" @click="viewBody = null; viewError = null">← 返回列表</button>
-      <pre v-if="viewBody" class="json">{{ JSON.stringify(viewBody, null, 2) }}</pre>
-      <p v-else-if="viewError" class="err">{{ viewError }}</p>
+    <div v-if="viewBody || viewError" class="cc-viewer">
+      <el-button link type="primary" @click="viewBody = null; viewError = null">← 返回列表</el-button>
+      <pre v-if="viewBody" class="cc-json">{{ JSON.stringify(viewBody, null, 2) }}</pre>
+      <p v-else-if="viewError" class="cc-err">{{ viewError }}</p>
     </div>
 
-    <table v-else class="table">
-      <thead>
-        <tr><th>版本</th><th>名称</th><th>大小</th><th>归档于</th><th>操作</th></tr>
-      </thead>
-      <tbody>
-        <tr v-for="v in versions" :key="v.version">
-          <td>v{{ v.version }}</td>
-          <td>{{ v.name }}</td>
-          <td>{{ fmtSize(v.size_bytes) }}</td>
-          <td>{{ fmtTime(v.captured_at) }}</td>
-          <td class="actions">
-            <button class="link" @click="viewVersion(v)">查看</button>
-            <button class="link danger" @click="deleteVersion(v)">删除</button>
-          </td>
-        </tr>
-        <tr v-if="versions.length === 0"><td colspan="5">暂无历史版本</td></tr>
-      </tbody>
-    </table>
+    <el-table v-else :data="versions" stripe style="width: 100%">
+      <el-table-column label="版本" width="80">
+        <template #default="{ row }">v{{ row.version }}</template>
+      </el-table-column>
+      <el-table-column label="名称" min-width="160" prop="name" />
+      <el-table-column label="大小" width="100">
+        <template #default="{ row }">{{ fmtSize(row.size_bytes) }}</template>
+      </el-table-column>
+      <el-table-column label="归档于" width="180">
+        <template #default="{ row }">{{ fmtTime(row.captured_at) }}</template>
+      </el-table-column>
+      <el-table-column label="操作" width="160" align="right">
+        <template #default="{ row }">
+          <el-button link type="primary" @click="viewVersion(row)">查看</el-button>
+          <el-button link type="danger" @click="deleteVersion(row)">删除</el-button>
+        </template>
+      </el-table-column>
+      <template #empty>
+        <span class="cc-empty">暂无历史版本</span>
+      </template>
+    </el-table>
   </Modal>
 </template>
 
-<style scoped>
-.err { color: #ef4444; }
-.viewer { display: flex; flex-direction: column; gap: 0.5rem; }
-.json {
+<style lang="scss" scoped>
+.cc-err {
+  color: #ef4444;
+}
+.cc-viewer {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.cc-json {
   max-height: 50vh;
   overflow: auto;
   background: #0f172a;
@@ -100,10 +109,8 @@ watch(() => props.workflowId, load, { immediate: true });
   border-radius: 6px;
   font-size: 0.8rem;
 }
-.table { width: 100%; border-collapse: collapse; }
-.table th, .table td { text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid #e2e8f0; }
-.table th { background: #f8fafc; color: #475569; }
-.actions { display: flex; gap: 0.5rem; }
-.link { border: none; background: none; color: #0ea5e9; cursor: pointer; padding: 0 0.25rem; }
-.link.danger { color: #ef4444; }
+.cc-empty {
+  color: #64748b;
+  font-size: 0.9rem;
+}
 </style>

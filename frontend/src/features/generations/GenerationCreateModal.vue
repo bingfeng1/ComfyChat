@@ -11,7 +11,6 @@ const configs = ref<GenerationConfigSummary[]>([]);
 const workflowId = ref("");
 const values = ref<Record<string, string | number>>({});
 const randomFlags = ref<Record<string, boolean>>({});
-const loading = ref(false);
 const submitting = ref(false);
 const submitError = ref<string | null>(null);
 
@@ -81,66 +80,79 @@ async function submit() {
 
 <template>
   <Modal :title="props.preset ? '再生成' : '新建生成'" @close="emit('close')">
-    <div class="form">
-      <label class="row">
-        工作流
-        <select v-model="workflowId" @change="selectWorkflow(workflowId)">
-          <option v-for="c in configs" :key="c.workflow_id" :value="c.workflow_id">
-            {{ c.workflow_name }}
-          </option>
-        </select>
-      </label>
+    <el-form label-position="top">
+      <el-form-item label="工作流">
+        <el-select v-model="workflowId" @change="selectWorkflow(workflowId)">
+          <el-option
+            v-for="c in configs"
+            :key="c.workflow_id"
+            :value="c.workflow_id"
+            :label="c.workflow_name"
+          />
+        </el-select>
+      </el-form-item>
 
       <template v-if="current">
-        <div v-for="f in fields" :key="f.key" class="row">
-          <label>{{ f.label }}</label>
+        <el-form-item
+          v-for="f in fields"
+          :key="f.key"
+          :label="f.label"
+        >
           <template v-if="f.type === 'seed'">
-            <label class="inline">
-              <input
-                type="checkbox"
-                v-model="randomFlags[`${f.key}_random`]"
+            <div class="cc-seed-row">
+              <el-checkbox v-model="randomFlags[`${f.key}_random`]">随机</el-checkbox>
+              <el-input-number
+                v-if="!randomFlags[`${f.key}_random`]"
+                :model-value="values[f.key] as number | undefined"
+                @update:model-value="(v: number | undefined) => values[f.key] = (v ?? 0)"
+                controls-position="right"
               />
-              随机
-            </label>
-            <input
-              v-if="!randomFlags[`${f.key}_random`]"
-              v-model.number="values[f.key]"
-              type="number"
-              class="input"
-              :required="f.required"
-            />
+            </div>
           </template>
-          <textarea
+          <el-input
             v-else
-            v-model="values[f.key]"
-            class="input"
-            :required="f.required"
-            rows="3"
+            type="textarea"
+            :rows="3"
+            :model-value="values[f.key]"
+            @update:model-value="(v: string) => values[f.key] = v ?? ''"
           />
-        </div>
+        </el-form-item>
       </template>
-      <p v-else-if="!loading" class="hint">没有可用的已配置工作流，请先在工作流页配置生成参数。</p>
+      <el-alert
+        v-else-if="configs.length === 0"
+        type="info"
+        title="没有可用的已配置工作流，请先在工作流页配置生成参数。"
+        :closable="false"
+        show-icon
+      />
 
-      <p v-if="submitError" class="err">{{ submitError }}</p>
+      <el-alert
+        v-if="submitError"
+        :title="submitError"
+        type="error"
+        :closable="false"
+        show-icon
+      />
+    </el-form>
 
-      <div class="actions">
-        <button class="btn" @click="emit('close')">取消</button>
-        <button class="btn primary" :disabled="submitting || !current" @click="submit">
-          {{ submitting ? "提交中…" : "生成" }}
-        </button>
-      </div>
-    </div>
+    <template #footer>
+      <el-button @click="emit('close')">取消</el-button>
+      <el-button
+        type="primary"
+        :loading="submitting"
+        :disabled="!current"
+        @click="submit"
+      >
+        {{ submitting ? "提交中…" : "生成" }}
+      </el-button>
+    </template>
   </Modal>
 </template>
 
-<style scoped>
-.form { display: flex; flex-direction: column; gap: 0.75rem; }
-.row { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.9rem; }
-.inline { display: flex; align-items: center; gap: 0.25rem; }
-.input { padding: 0.4rem; border: 1px solid #cbd5e1; border-radius: 6px; }
-.hint { color: #64748b; font-size: 0.85rem; }
-.err { color: #ef4444; }
-.actions { display: flex; gap: 0.5rem; justify-content: flex-end; }
-.btn { padding: 0.4rem 0.9rem; border: 1px solid #cbd5e1; border-radius: 6px; background: #fff; cursor: pointer; }
-.btn.primary { background: #0ea5e9; border-color: #0ea5e9; color: #fff; }
+<style lang="scss" scoped>
+.cc-seed-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
 </style>

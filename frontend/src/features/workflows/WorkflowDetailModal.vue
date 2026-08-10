@@ -29,14 +29,14 @@ watch(
 
 <template>
   <Modal :title="props.title" @close="emit('close')">
-    <pre v-if="json" class="json">{{ JSON.stringify(json, null, 2) }}</pre>
-    <p v-else-if="loadError" class="err">加载失败：{{ loadError }}</p>
+    <pre v-if="json" class="cc-json">{{ JSON.stringify(json, null, 2) }}</pre>
+    <p v-else-if="loadError" class="cc-err">加载失败：{{ loadError }}</p>
     <p v-else>加载中…</p>
   </Modal>
 </template>
 
-<style scoped>
-.json {
+<style lang="scss" scoped>
+.cc-json {
   max-height: 60vh;
   overflow: auto;
   background: #0f172a;
@@ -45,5 +45,7 @@ watch(
   border-radius: 6px;
   font-size: 0.8rem;
 }
-.err { color: #ef4444; }
+.cc-err {
+  color: #ef4444;
+}
 </style>

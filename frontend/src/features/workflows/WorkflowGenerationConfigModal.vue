@@ -64,52 +64,65 @@ async function save() {
 
 <template>
   <Modal :title="`生成配置 · ${props.title}`" @close="emit('close')">
-    <div class="form">
-      <label class="row">
-        API 模板 JSON
-        <textarea v-model="apiTemplate" class="input code" rows="8" />
-      </label>
+    <div class="cc-form">
+      <el-form-item label="API 模板 JSON">
+        <el-input
+          v-model="apiTemplate"
+          type="textarea"
+          :rows="8"
+          class="cc-code"
+        />
+      </el-form-item>
 
-      <h4>参数字段</h4>
-      <div v-for="(f, i) in fields" :key="i" class="field-row">
-        <input v-model="f.key" class="input" placeholder="key" />
-        <input v-model="f.label" class="input" placeholder="label" />
-        <select v-model="f.type" class="input">
-          <option value="text">text</option>
-          <option value="seed">seed</option>
-        </select>
-        <input v-model="f.node_id" class="input" placeholder="node_id" />
-        <input v-model="f.input_name" class="input" placeholder="input_name" />
-        <input v-model="f.default" class="input" placeholder="default" />
-        <label class="inline">
-          <input v-model="f.required" type="checkbox" />必填
-        </label>
-        <button class="link danger" @click="removeField(i)">×</button>
+      <h4 class="cc-section-title">参数字段</h4>
+      <div v-for="(f, i) in fields" :key="i" class="cc-field-row">
+        <el-input v-model="f.key" placeholder="key" size="small" />
+        <el-input v-model="f.label" placeholder="label" size="small" />
+        <el-select v-model="f.type" size="small" style="width: 110px">
+          <el-option value="text" label="text" />
+          <el-option value="seed" label="seed" />
+        </el-select>
+        <el-input v-model="f.node_id" placeholder="node_id" size="small" />
+        <el-input v-model="f.input_name" placeholder="input_name" size="small" />
+        <el-input v-model="f.default" placeholder="default" size="small" />
+        <el-checkbox v-model="f.required">必填</el-checkbox>
+        <el-button link type="danger" @click="removeField(i)">×</el-button>
       </div>
-      <button class="btn" @click="addField">+ 添加字段</button>
+      <el-button @click="addField">+ 添加字段</el-button>
 
-      <p v-if="error" class="err">{{ error }}</p>
-
-      <div class="actions">
-        <button class="btn" @click="emit('close')">取消</button>
-        <button class="btn primary" :disabled="saving || !!error" @click="save">
-          {{ saving ? "保存中…" : "保存" }}
-        </button>
-      </div>
+      <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
     </div>
+
+    <template #footer>
+      <el-button @click="emit('close')">取消</el-button>
+      <el-button type="primary" :loading="saving" @click="save">
+        {{ saving ? "保存中…" : "保存" }}
+      </el-button>
+    </template>
   </Modal>
 </template>
 
-<style scoped>
-.form { display: flex; flex-direction: column; gap: 0.75rem; }
-.row { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.9rem; }
-.field-row { display: flex; gap: 0.25rem; align-items: center; flex-wrap: wrap; }
-.inline { display: flex; align-items: center; gap: 0.25rem; font-size: 0.8rem; }
-.input { padding: 0.35rem; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.85rem; }
-.code { font-family: monospace; font-size: 0.8rem; }
-.err { color: #ef4444; }
-.actions { display: flex; gap: 0.5rem; justify-content: flex-end; }
-.btn { padding: 0.4rem 0.9rem; border: 1px solid #cbd5e1; border-radius: 6px; background: #fff; cursor: pointer; }
-.btn.primary { background: #0ea5e9; border-color: #0ea5e9; color: #fff; }
-.link.danger { border: none; background: none; color: #ef4444; cursor: pointer; }
+<style lang="scss" scoped>
+.cc-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.cc-section-title {
+  margin: 0.25rem 0 0;
+  font-size: 0.9rem;
+}
+.cc-field-row {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.cc-code :deep(textarea) {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8rem;
+}
+:deep(.cc-field-row .el-input) {
+  width: 130px;
+}
 </style>

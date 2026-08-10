@@ -27,37 +27,66 @@ watch(
 
 <template>
   <Modal :title="props.title" @close="emit('close')">
-    <div v-if="gen" class="detail">
-      <img
+    <div v-if="gen" class="cc-detail">
+      <el-image
         v-for="out in gen.outputs"
         :key="out"
         :src="api.generations.imageUrl(gen.id, out)"
-        class="preview"
+        class="cc-preview"
+        fit="contain"
         alt=""
       />
-      <p v-if="gen.outputs.length === 0" class="hint">无输出图片</p>
-      <dl class="meta">
+      <p v-if="gen.outputs.length === 0" class="cc-hint">无输出图片</p>
+      <dl class="cc-meta">
         <dt>状态</dt><dd>{{ gen.status }}</dd>
         <dt>工作流</dt><dd>{{ gen.workflow_name }}</dd>
         <dt>时间</dt><dd>{{ new Date(gen.created_at).toLocaleString() }}</dd>
         <template v-if="gen.error">
-          <dt>错误</dt><dd class="err">{{ gen.error }}</dd>
+          <dt>错误</dt><dd class="cc-err">{{ gen.error }}</dd>
         </template>
       </dl>
       <h4>参数</h4>
-      <pre class="json">{{ JSON.stringify(gen.parameters, null, 2) }}</pre>
+      <pre class="cc-json">{{ JSON.stringify(gen.parameters, null, 2) }}</pre>
     </div>
-    <p v-else-if="loadError" class="err">{{ loadError }}</p>
+    <p v-else-if="loadError" class="cc-err">{{ loadError }}</p>
     <p v-else>加载中…</p>
   </Modal>
 </template>
 
-<style scoped>
-.detail { display: flex; flex-direction: column; gap: 0.75rem; }
-.preview { max-width: 100%; max-height: 55vh; object-fit: contain; border-radius: 6px; }
-.hint { color: #64748b; }
-.meta { display: grid; grid-template-columns: 4rem 1fr; gap: 0.25rem 0.5rem; font-size: 0.85rem; }
-.meta dt { color: #64748b; }
-.err { color: #ef4444; }
-.json { max-height: 30vh; overflow: auto; background: #0f172a; color: #a5b4fc; padding: 0.75rem; border-radius: 6px; font-size: 0.8rem; }
+<style lang="scss" scoped>
+.cc-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+:deep(.cc-preview) {
+  max-width: 100%;
+  max-height: 55vh;
+  object-fit: contain;
+  border-radius: 6px;
+}
+.cc-hint {
+  color: #64748b;
+}
+.cc-meta {
+  display: grid;
+  grid-template-columns: 4rem 1fr;
+  gap: 0.25rem 0.5rem;
+  font-size: 0.85rem;
+}
+.cc-meta dt {
+  color: #64748b;
+}
+.cc-err {
+  color: #ef4444;
+}
+.cc-json {
+  max-height: 30vh;
+  overflow: auto;
+  background: #0f172a;
+  color: #a5b4fc;
+  padding: 0.75rem;
+  border-radius: 6px;
+  font-size: 0.8rem;
+}
 </style>
