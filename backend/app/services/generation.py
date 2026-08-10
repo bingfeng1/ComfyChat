@@ -173,12 +173,16 @@ def infer_field_type(
 
 
 def _field_meta(object_info: dict | None, node_type: str, input_name: str) -> dict:
-    """从 object_info 提取 min/max/step/options 等元数据,无则空 dict。"""
+    """从 object_info 提取 min/max/step/options 等元数据,无则空 dict。
+
+    注意: 不返回 default — default 由 discover_fields 从工作流 widgets_values
+    决定,object_info 的 default 是节点类型默认,会覆盖工作流实际值。
+    """
     schema = _object_info_schema(object_info, node_type, input_name)
     if not schema:
         return {}
     meta: dict = {}
-    for key in ("min", "max", "step", "default"):
+    for key in ("min", "max", "step"):
         if key in schema and isinstance(schema[key], (int, float)):
             meta[key] = schema[key]
     if "options" in schema:

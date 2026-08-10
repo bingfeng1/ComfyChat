@@ -170,7 +170,8 @@ function selectWorkflow(id: string) {
     }
   } else {
     for (const f of fields.value) {
-      if (typeof f.default === "string" || typeof f.default === "number") {
+      // seed 字段不填工作流默认值,由用户填或勾选随机
+      if (f.type !== "seed" && (typeof f.default === "string" || typeof f.default === "number")) {
         values.value[f.key] = f.default;
       }
       randomFlags.value[`${f.key}_random`] = false;
