@@ -35,6 +35,8 @@ watch(
         class="cc-preview"
         fit="contain"
         alt=""
+        preview-teleported
+        :preview-src-list="gen.outputs.map((o) => api.generations.imageUrl(gen!.id, o))"
       />
       <p v-if="gen.outputs.length === 0" class="cc-hint">无输出图片</p>
       <dl class="cc-meta">

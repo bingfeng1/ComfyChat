@@ -84,6 +84,7 @@ function promptText(g: GenerationSummary): string {
             fit="cover"
             style="width: 40px; height: 40px; border-radius: 4px"
             :preview-src-list="[thumbUrl(row)!]"
+            preview-teleported
           />
           <div v-else class="cc-thumb-placeholder" />
         </template>
