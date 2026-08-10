@@ -82,12 +82,6 @@ async function save() {
         <el-tag size="small" type="info" class="cc-type-tag">{{ f.type }}</el-tag>
         <span class="cc-label">{{ f.label }}</span>
         <span class="cc-key">{{ f.key }}</span>
-        <el-input
-          v-model="f.label"
-          size="small"
-          class="cc-label-edit"
-          placeholder="标签"
-        />
         <el-checkbox v-model="f.required" class="cc-required" size="small">
           必填
         </el-checkbox>
@@ -143,9 +137,6 @@ async function save() {
 .cc-key {
   color: #94a3b8;
   font-size: 0.8rem;
-}
-.cc-label-edit {
-  width: 160px;
 }
 .cc-type-tag {
   flex-shrink: 0;
