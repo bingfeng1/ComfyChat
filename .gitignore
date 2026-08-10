@@ -30,3 +30,6 @@ Thumbs.db
 
 # Playwright MCP artifacts
 .playwright-mcp/
+
+# OpenCode / superpowers scratch (brainstorm visual companion + SDD workspaces)
+/.superpowers/
