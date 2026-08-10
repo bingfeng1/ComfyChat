@@ -52,13 +52,17 @@ const heightField = computed(() => fields.value.find((f) => f.key === "height" &
 const hasSizeFields = computed(() => widthField.value !== null && heightField.value !== null);
 const lockRatio = ref(false);
 const ratioLabel = ref("");
+const lockedRatio = ref<{ w: number; h: number } | null>(null);
 
-function currentRatio(): { w: number; h: number } {
-  const w = Number(values.value["width"]) || 1;
-  const h = Number(values.value["height"]) || 1;
-  const gcd = (a: number, b: number): number => (b === 0 ? a : gcd(b, a % b));
-  const g = gcd(Math.round(w), Math.round(h)) || 1;
-  return { w: Math.round(w / g), h: Math.round(h / g) };
+function gcdOf(a: number, b: number): number {
+  return b === 0 ? a : gcdOf(b, a % b);
+}
+
+function ratioOf(w: number, h: number): { w: number; h: number } {
+  const gw = Math.max(1, Math.round(w));
+  const gh = Math.max(1, Math.round(h));
+  const g = gcdOf(gw, gh) || 1;
+  return { w: Math.round(gw / g), h: Math.round(gh / g) };
 }
 
 function applyRatioPreset(label: string) {
@@ -66,6 +70,7 @@ function applyRatioPreset(label: string) {
   if (!p || !hasSizeFields.value) return;
   ratioLabel.value = label;
   lockRatio.value = true;
+  lockedRatio.value = { w: p.w, h: p.h };
   const w = Number(values.value["width"]) || 1024;
   values.value["height"] = Math.round((w * p.h) / p.w);
   values.value["width"] = w;
@@ -76,21 +81,33 @@ function applyResPreset(label: string) {
   if (!p || !hasSizeFields.value) return;
   values.value["width"] = p.w;
   values.value["height"] = p.h;
-  const gcd = (a: number, b: number): number => (b === 0 ? a : gcd(b, a % b));
-  const g = gcd(p.w, p.h);
+  const g = gcdOf(p.w, p.h);
   ratioLabel.value = `${p.w / g}:${p.h / g}`;
   lockRatio.value = false;
+  lockedRatio.value = null;
+}
+
+function onToggleLockRatio(checked: boolean) {
+  lockRatio.value = checked;
+  if (checked) {
+    // 勾选锁定: 用当前宽高作为锁定比例
+    lockedRatio.value = ratioOf(
+      Number(values.value["width"]) || 0,
+      Number(values.value["height"]) || 0,
+    );
+    if (lockedRatio.value.w === 0 || lockedRatio.value.h === 0) lockedRatio.value = null;
+  }
 }
 
 function onSizeChange(changed: "width" | "height") {
-  if (!lockRatio.value || !hasSizeFields.value) return;
-  const ratio = currentRatio();
+  if (!lockRatio.value || !hasSizeFields.value || !lockedRatio.value) return;
+  const { w: rw, h: rh } = lockedRatio.value;
   if (changed === "width") {
     const w = Number(values.value["width"]) || 0;
-    values.value["height"] = Math.round((w * ratio.h) / ratio.w) || values.value["height"];
+    values.value["height"] = Math.round((w * rh) / rw) || values.value["height"];
   } else {
     const h = Number(values.value["height"]) || 0;
-    values.value["width"] = Math.round((h * ratio.w) / ratio.h) || values.value["width"];
+    values.value["width"] = Math.round((h * rw) / rh) || values.value["width"];
   }
 }
 
@@ -291,7 +308,10 @@ function paramDisplay(f: GenerationField): string {
                   :label="r.label"
                 />
               </el-select>
-              <el-checkbox v-model="lockRatio">锁定比例</el-checkbox>
+              <el-checkbox
+                :model-value="lockRatio"
+                @update:model-value="(v: boolean) => onToggleLockRatio(v)"
+              >锁定比例</el-checkbox>
             </div>
             <div class="cc-size-row">
               <el-input-number
