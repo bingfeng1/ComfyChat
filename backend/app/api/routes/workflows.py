@@ -26,6 +26,7 @@ from app.schemas.workflow import (
     WorkflowVersionOut,
 )
 from app.services.generation import discover_fields, workflow_to_api_template
+from app.services.lora import main_model_from_template
 from app.services.workflow import WorkflowService
 
 router = APIRouter(prefix="/workflows", tags=["workflows"])
@@ -70,6 +71,7 @@ def list_generation_configs(
             workflow_id=cfg.workflow_id,
             workflow_name=name,
             fields=[f for f in json.loads(cfg.fields_json)],
+            main_model=main_model_from_template(json.loads(cfg.api_template)),
         ))
     return {"items": items}
 
@@ -95,7 +97,9 @@ def get_generation_config(
     cfg = config_repo.get_by_workflow(workflow_id)
     if cfg is None:
         raise HTTPException(status_code=404, detail="Generation config not found")
-    return GenerationConfigOut.from_model(cfg)
+    out = GenerationConfigOut.from_model(cfg)
+    out.main_model = main_model_from_template(json.loads(cfg.api_template))
+    return out
 
 
 @router.get("/{workflow_id}/generation-config/discover", response_model=GenerationDiscoverOut)

@@ -32,6 +32,7 @@ class GenerationConfigOut(BaseModel):
     api_template: dict
     fields: list[GenerationField]
     updated_at: str
+    main_model: str | None = None
 
     @classmethod
     def from_model(cls, cfg: WorkflowGenerationConfig) -> "GenerationConfigOut":
@@ -52,6 +53,7 @@ class GenerationConfigSummaryOut(BaseModel):
     workflow_id: str
     workflow_name: str
     fields: list[GenerationField]
+    main_model: str | None = None
 
 
 class GenerationConfigListOut(BaseModel):

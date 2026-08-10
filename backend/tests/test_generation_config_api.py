@@ -79,3 +79,33 @@ def test_put_config_rejects_bad_field_type(tmp_path):
         "fields": [{"key": "x", "label": "X", "type": "checkbox", "node_id": "1", "input_name": "t", "default": "", "required": False}],
     })
     assert r.status_code == 422
+
+
+def test_list_configs_include_main_model(tmp_path):
+    client = _client(tmp_path)
+    wid = _import(client)
+    body = {
+        "api_template": {
+            "2": {"class_type": "UNETLoader", "inputs": {"unet_name": "z_image_turbo_int8_convrot.safetensors"}},
+            "6": {"class_type": "LoraLoaderModelOnly", "inputs": {
+                "model": ["2", 0], "lora_name": "mumu_20.safetensors", "strength_model": 0}},
+        },
+        "fields": [],
+    }
+    client.put(f"/workflows/{wid}/generation-config", json=body)
+    r = client.get("/workflows/generation-configs")
+    assert r.status_code == 200
+    item = r.json()["items"][0]
+    assert item["main_model"] == "z_image_turbo_int8_convrot.safetensors"
+
+    r2 = client.get(f"/workflows/{wid}/generation-config")
+    assert r2.json()["main_model"] == "z_image_turbo_int8_convrot.safetensors"
+
+
+def test_list_configs_main_model_null_without_lora(tmp_path):
+    client = _client(tmp_path)
+    wid = _import(client)
+    body = {"api_template": {"3": {"class_type": "KSampler", "inputs": {"seed": 0}}}, "fields": []}
+    client.put(f"/workflows/{wid}/generation-config", json=body)
+    r = client.get("/workflows/generation-configs")
+    assert r.json()["items"][0]["main_model"] is None
