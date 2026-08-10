@@ -98,6 +98,7 @@ export interface GenerationConfigSummary {
   workflow_id: string;
   workflow_name: string;
   fields: GenerationField[];
+  main_model?: string | null;
 }
 
 export interface GenerationConfigList {
@@ -107,4 +108,16 @@ export interface GenerationConfigList {
 export interface GenerationConfigPayload {
   api_template: Record<string, unknown>;
   fields: GenerationField[];
+}
+
+export interface LoraSummary {
+  name: string;
+  base_family: string | null;
+  source_url: string | null;
+  trigger_words: string | null;
+  models: string[];
+}
+
+export interface LoraList {
+  items: LoraSummary[];
 }

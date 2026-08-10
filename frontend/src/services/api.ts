@@ -2,6 +2,7 @@ import type {
   ApiInfo,
   GenerationConfigList,
   GenerationConfigPayload,
+  LoraList,
   GenerationList,
   GenerationStatus,
   GenerationSummary,
@@ -115,5 +116,8 @@ export const api = {
     remove: (id: string) => request(`/generations/${id}`, { method: "DELETE" }),
     imageUrl: (id: string, filename: string) =>
       `${API_BASE}/generations/${id}/images/${encodeURIComponent(filename)}`,
+  },
+  loras: {
+    list: () => get<LoraList>("/lora"),
   },
 };

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useRoute } from "vue-router";
-import { Folder, Picture } from "@element-plus/icons-vue";
+import { Folder, MagicStick, Picture } from "@element-plus/icons-vue";
 
 const route = useRoute();
 
@@ -15,6 +15,7 @@ interface NavItem {
 const items: NavItem[] = [
   { to: "/workflows", label: "工作流", icon: Folder, match: "/workflows" },
   { to: "/generations", label: "生成", icon: Picture, match: "/generations" },
+  { to: "/loras", label: "LoRA", icon: MagicStick, match: "/loras" },
 ];
 
 const active = computed(() => {
