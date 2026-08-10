@@ -426,7 +426,7 @@ git add backend/tests/test_lora_service.py backend/app/services/lora.py; if ($?)
   - `LoraRepository(session)`:
     - `upsert_lora(name, base_family=None, source_url=None, trigger_words=None) -> None`
     - `replace_links(lora_name, models: list[str], source: str) -> None` — 先删该 lora 旧链接再插入。
-    - `list_all() -> list[tuple[Lora, list[str]]]` — 每行 lora + 其 model_name 列表。
+    - `list_all() -> list[tuple[str, list[str]]]` — 每行 `(lora 文件名, 其 model_name 列表)`。注意第一元素是**字符串文件名**,不是 `Lora` 对象(Task 3/4 测试均按字符串解包;Task 5 路由用 `session.get(Lora, name)` 取元数据)。
     - `clear_stale(known_names: set[str]) -> None` — 删除不在 known_names 中的 lora(及其链接,靠 FK 显式删)。
 
 - [ ] **Step 1: 写失败测试**
@@ -944,6 +944,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db_session, get_services, get_settings
 from app.core.config import Settings
+from app.models.lora import Lora
 from app.repositories.lora import LoraRepository
 from app.repositories.workflow import WorkflowRepository
 from app.schemas.lora import LoraListOut, LoraOut
@@ -966,13 +967,15 @@ def _service(
 
 
 def _out(session: Session) -> LoraListOut:
+    repo = LoraRepository(session)
     items = []
-    for lora, models in LoraRepository(session).list_all():
+    for name, models in repo.list_all():
+        lora = session.get(Lora, name)
         items.append(LoraOut(
-            name=lora.name,
-            base_family=lora.base_family,
-            source_url=lora.source_url,
-            trigger_words=lora.trigger_words,
+            name=name,
+            base_family=lora.base_family if lora else None,
+            source_url=lora.source_url if lora else None,
+            trigger_words=lora.trigger_words if lora else None,
             models=models,
         ))
     return LoraListOut(items=items)
