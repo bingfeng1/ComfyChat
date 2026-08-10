@@ -170,11 +170,11 @@ function selectWorkflow(id: string) {
     }
   } else {
     for (const f of fields.value) {
-      // seed 字段不填工作流默认值,由用户填或勾选随机
+      // 非 seed 字段填工作流默认值;seed 默认勾选随机,不填工作流的固定种子
       if (f.type !== "seed" && (typeof f.default === "string" || typeof f.default === "number")) {
         values.value[f.key] = f.default;
       }
-      randomFlags.value[`${f.key}_random`] = false;
+      randomFlags.value[`${f.key}_random`] = f.type === "seed";
     }
   }
 }
@@ -184,14 +184,14 @@ function onWorkflowChange(id: string | number) {
   step.value = 1;
 }
 
-// 兜底: 字段就绪后,确保每个 seed 字段的随机标志都有显式布尔值(默认 false)
+// 兜底: 字段就绪后,确保每个 seed 字段的随机标志有显式布尔值(新建生成默认勾选随机)
 watch(
   fields,
   () => {
     if (!props.preset) {
       for (const f of fields.value) {
         if (f.type === "seed" && randomFlags.value[`${f.key}_random`] === undefined) {
-          randomFlags.value[`${f.key}_random`] = false;
+          randomFlags.value[`${f.key}_random`] = true;
         }
       }
     }
