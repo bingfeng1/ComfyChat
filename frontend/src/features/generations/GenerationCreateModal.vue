@@ -421,12 +421,6 @@ function paramDisplay(f: GenerationField): string {
             controls-position="right"
             style="width: 100%"
           />
-          <div v-if="isLoraField(f) && currentConfig?.main_model" class="cc-lora-toggle">
-            <el-checkbox
-              :model-value="showAllLoras"
-              @update:model-value="(v: boolean) => showAllLoras = v"
-            >显示全部 LoRA</el-checkbox>
-          </div>
           <el-select
             v-else-if="f.type === 'select'"
             :model-value="values[f.key]"
@@ -447,6 +441,12 @@ function paramDisplay(f: GenerationField): string {
             :model-value="values[f.key]"
             @update:model-value="(v: string) => values[f.key] = v ?? ''"
           />
+          <div v-if="isLoraField(f) && currentConfig?.main_model" class="cc-lora-toggle">
+            <el-checkbox
+              :model-value="showAllLoras"
+              @update:model-value="(v: boolean) => showAllLoras = v"
+            >显示全部 LoRA</el-checkbox>
+          </div>
         </el-form-item>
         </el-form>
       </div>
