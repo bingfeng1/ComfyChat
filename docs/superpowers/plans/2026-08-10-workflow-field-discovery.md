@@ -230,45 +230,7 @@ git commit -m "feat(backend): UI→API 模板转换 + 字段自动发现纯函�
 
 - [ ] **Step 1: 写失败测试**
 
-在 `backend/tests/test_generation_service.py` 末尾追加:
-
-```python
-NUMBER_FIELDS = [
-    {"key": "steps", "label": "步数", "type": "number", "node_id": "16", "input_name": "steps", "default": 20, "required": True},
-]
-
-
-def test_apply_parameters_accepts_number():
-    filled, effective = apply_parameters(
-        {"16": {"class_type": "KSampler", "inputs": {"steps": 20}}},
-        NUMBER_FIELDS,
-        {"steps": 30},
-    )
-    assert filled["16"]["inputs"]["steps"] == 30
-    assert effective["steps"] == 30
-
-
-def test_apply_parameters_rejects_bad_number_type():
-    with pytest.raises(ValueError):
-        apply_parameters(
-            {"16": {"class_type": "KSampler", "inputs": {"steps": 20}}},
-            NUMBER_FIELDS,
-            {"steps": "abc"},
-        )
-
-
-def test_apply_parameters_rejects_bool_as_number():
-    with pytest.raises(ValueError):
-        apply_parameters(
-            {"16": {"class_type": "KSampler", "inputs": {"steps": 20}}},
-            NUMBER_FIELDS,
-            {"steps": True},
-        )
-```
-
-注意: 当前 `apply_parameters` 里 `number` 分支还不存在,所以 `test_apply_parameters_accepts_number` 会怎样?`value=30`,类型检查 `field["type"]=="seed"` 为假,`field["type"]=="number"` 也为假(还没实现),落到 `required` 检查通过,`filled["16"]["inputs"]["steps"]=30` 成功。所以**第一个测试在未实现时也会通过** — 这不是理想 TDD。修正: 让失败测试先验证拒绝逻辑。调整 Step 1 的测试,让"拒绝非数字"先失败:
-
-替换上面对 `NUMBER_FIELDS` 的追加为:
+在 `backend/tests/test_generation_service.py` 末尾追加(先写"拒绝"类测试,确保它们在 number 分支不存在时失败;`test_apply_parameters_accepts_number` 在未实现时也会通过,但它不是红绿灯,仅作回归保护):
 
 ```python
 NUMBER_FIELDS = [
