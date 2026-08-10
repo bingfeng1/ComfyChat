@@ -44,7 +44,7 @@ function thumbUrl(g: GenerationSummary): string | null {
 }
 
 function promptText(g: GenerationSummary): string {
-  const p = g.parameters["positive_prompt"];
+  const p = g.parameters["text"];
   return typeof p === "string" ? p : "";
 }
 </script>
