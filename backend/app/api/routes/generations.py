@@ -3,7 +3,7 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from fastapi.responses import FileResponse, Response
 from sqlalchemy.orm import Session
 
@@ -50,11 +50,21 @@ def create_generation(
 @router.get("", response_model=GenerationListOut)
 def list_generations(
     status_filter: str | None = None,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(15, ge=1, le=100),
     service: GenerationService = Depends(_service),
-) -> dict:
+) -> GenerationListOut:
     service.reconcile()
-    items = service.gen_repo.list(status=status_filter)
-    return {"items": [GenerationOut.from_model(g) for g in items]}
+    items = service.gen_repo.list(
+        status=status_filter, page=page, page_size=page_size
+    )
+    total = service.gen_repo.count(status=status_filter)
+    return GenerationListOut(
+        items=[GenerationOut.from_model(g) for g in items],
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
 
 
 @router.get("/{generation_id}", response_model=GenerationOut)

@@ -93,3 +93,6 @@ class GenerationOut(BaseModel):
 
 class GenerationListOut(BaseModel):
     items: list[GenerationOut]
+    total: int
+    page: int
+    page_size: int
