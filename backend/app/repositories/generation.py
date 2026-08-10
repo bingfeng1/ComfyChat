@@ -4,7 +4,7 @@ import json
 from datetime import datetime, timezone
 from typing import Optional, Sequence
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.generation import Generation, WorkflowGenerationConfig
@@ -39,12 +39,29 @@ class GenerationRepository:
         self.session.refresh(gen)
         return gen
 
-    def list(self, status: Optional[str] = None) -> Sequence[Generation]:
+    def list(
+        self,
+        status: Optional[str] = None,
+        *,
+        page: int = 1,
+        page_size: int = 15,
+    ) -> Sequence[Generation]:
+        if page < 1:
+            page = 1
+        if page_size < 1:
+            page_size = 15
         stmt = select(Generation)
         if status:
             stmt = stmt.where(Generation.status == status)
         stmt = stmt.order_by(Generation.created_at.desc())
+        stmt = stmt.offset((page - 1) * page_size).limit(page_size)
         return self.session.scalars(stmt).all()
+
+    def count(self, status: Optional[str] = None) -> int:
+        stmt = select(func.count()).select_from(Generation)
+        if status:
+            stmt = stmt.where(Generation.status == status)
+        return int(self.session.scalar(stmt) or 0)
 
     def get(self, generation_id: str) -> Optional[Generation]:
         return self.session.get(Generation, generation_id)

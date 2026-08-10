@@ -52,3 +52,50 @@ def test_delete(session):
     assert repo.delete(g.id) is True
     assert repo.get(g.id) is None
     assert repo.delete(g.id) is False
+
+
+def test_list_paginates_correctly(session):
+    repo = _mk_repo(session)
+    for i in range(20):
+        repo.create("wf1", "z-image", {"i": i}, "success", f"p{i}")
+    # 排序按 created_at 倒序,后插入的在前
+    all_ids = [g.id for g in repo.list(page_size=100)]
+    assert len(all_ids) == 20
+
+    page1 = repo.list(page=1, page_size=15)
+    page2 = repo.list(page=2, page_size=15)
+    page3 = repo.list(page=3, page_size=15)
+    assert [g.id for g in page1] == all_ids[:15]
+    assert [g.id for g in page2] == all_ids[15:20]
+    assert [g.id for g in page3] == []
+
+
+def test_count_ignores_pagination(session):
+    repo = _mk_repo(session)
+    for i in range(20):
+        repo.create("wf1", "z-image", {"i": i}, "success", f"p{i}")
+    assert repo.count() == 20
+    assert repo.count() == 20  # 与 page/page_size 无关
+
+
+def test_list_with_status_filter_paginates(session):
+    repo = _mk_repo(session)
+    for i in range(10):
+        repo.create("wf1", "z-image", {"i": i}, "success", f"p{i}")
+    for i in range(10):
+        repo.create("wf1", "z-image", {"i": i}, "queued", f"q{i}")
+
+    success_all = repo.list(status="success")
+    assert len(success_all) == 10
+    success_page1 = repo.list(status="success", page=1, page_size=5)
+    success_page2 = repo.list(status="success", page=2, page_size=5)
+    assert len(success_page1) == 5
+    assert len(success_page2) == 5
+    assert {g.id for g in success_page1}.isdisjoint({g.id for g in success_page2})
+
+
+def test_list_empty_page_returns_empty(session):
+    repo = _mk_repo(session)
+    for i in range(3):
+        repo.create("wf1", "z-image", {"i": i}, "success", f"p{i}")
+    assert repo.list(page=999, page_size=15) == []
