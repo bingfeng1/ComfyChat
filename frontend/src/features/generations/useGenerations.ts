@@ -8,9 +8,10 @@ export function useGenerations() {
   const error = ref<string | null>(null);
   const statusFilter = ref<GenerationStatus | "">("");
   let timer: number | undefined;
+  let initialized = false;
 
-  async function refresh() {
-    loading.value = true;
+  async function refresh(silent = false) {
+    if (!silent) loading.value = true;
     error.value = null;
     try {
       const data = await api.generations.list({
@@ -20,7 +21,18 @@ export function useGenerations() {
     } catch (err) {
       error.value = err instanceof Error ? err.message : String(err);
     } finally {
-      loading.value = false;
+      if (!silent) loading.value = false;
+    }
+  }
+
+  async function poll() {
+    try {
+      const data = await api.generations.list({
+        status: statusFilter.value || undefined,
+      });
+      items.value = data.items;
+    } catch {
+      /* 静默轮询失败不打扰用户 */
     }
   }
 
@@ -45,7 +57,7 @@ export function useGenerations() {
 
   onMounted(() => {
     refresh();
-    timer = window.setInterval(refresh, 2000);
+    timer = window.setInterval(poll, 2000);
   });
   onUnmounted(() => {
     if (timer) window.clearInterval(timer);

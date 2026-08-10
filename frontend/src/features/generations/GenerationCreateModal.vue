@@ -25,6 +25,75 @@ const fields = computed<GenerationField[]>(() => currentConfig.value?.fields ?? 
 
 const needsFieldsStep = computed(() => fields.value.length > 0);
 
+const RATIO_PRESETS = [
+  { label: "1:1", w: 1, h: 1 },
+  { label: "4:3", w: 4, h: 3 },
+  { label: "3:4", w: 3, h: 4 },
+  { label: "3:2", w: 3, h: 2 },
+  { label: "2:3", w: 2, h: 3 },
+  { label: "16:9", w: 16, h: 9 },
+  { label: "9:16", w: 9, h: 16 },
+  { label: "21:9", w: 21, h: 9 },
+];
+
+const RES_PRESETS = [
+  { label: "512 × 512", w: 512, h: 512 },
+  { label: "768 × 768", w: 768, h: 768 },
+  { label: "896 × 896", w: 896, h: 896 },
+  { label: "1024 × 1024", w: 1024, h: 1024 },
+  { label: "768 × 1024", w: 768, h: 1024 },
+  { label: "1024 × 768", w: 1024, h: 768 },
+  { label: "1152 × 896", w: 1152, h: 896 },
+  { label: "1344 × 768", w: 1344, h: 768 },
+];
+
+const widthField = computed(() => fields.value.find((f) => f.key === "width" && f.type === "number") ?? null);
+const heightField = computed(() => fields.value.find((f) => f.key === "height" && f.type === "number") ?? null);
+const hasSizeFields = computed(() => widthField.value !== null && heightField.value !== null);
+const lockRatio = ref(false);
+const ratioLabel = ref("");
+
+function currentRatio(): { w: number; h: number } {
+  const w = Number(values.value["width"]) || 1;
+  const h = Number(values.value["height"]) || 1;
+  const gcd = (a: number, b: number): number => (b === 0 ? a : gcd(b, a % b));
+  const g = gcd(Math.round(w), Math.round(h)) || 1;
+  return { w: Math.round(w / g), h: Math.round(h / g) };
+}
+
+function applyRatioPreset(label: string) {
+  const p = RATIO_PRESETS.find((r) => r.label === label);
+  if (!p || !hasSizeFields.value) return;
+  ratioLabel.value = label;
+  lockRatio.value = true;
+  const w = Number(values.value["width"]) || 1024;
+  values.value["height"] = Math.round((w * p.h) / p.w);
+  values.value["width"] = w;
+}
+
+function applyResPreset(label: string) {
+  const p = RES_PRESETS.find((r) => r.label === label);
+  if (!p || !hasSizeFields.value) return;
+  values.value["width"] = p.w;
+  values.value["height"] = p.h;
+  const gcd = (a: number, b: number): number => (b === 0 ? a : gcd(b, a % b));
+  const g = gcd(p.w, p.h);
+  ratioLabel.value = `${p.w / g}:${p.h / g}`;
+  lockRatio.value = false;
+}
+
+function onSizeChange(changed: "width" | "height") {
+  if (!lockRatio.value || !hasSizeFields.value) return;
+  const ratio = currentRatio();
+  if (changed === "width") {
+    const w = Number(values.value["width"]) || 0;
+    values.value["height"] = Math.round((w * ratio.h) / ratio.w) || values.value["height"];
+  } else {
+    const h = Number(values.value["height"]) || 0;
+    values.value["width"] = Math.round((h * ratio.w) / ratio.h) || values.value["width"];
+  }
+}
+
 const totalSteps = computed(() => (needsFieldsStep.value ? 3 : 2));
 
 const stepTitle = computed(() => {
@@ -191,8 +260,63 @@ function paramDisplay(f: GenerationField): string {
       </div>
 
       <div v-else-if="step === 2 && needsFieldsStep" class="cc-step-body">
+        <el-form-item v-if="hasSizeFields" label="尺寸">
+          <div class="cc-size-control">
+            <div class="cc-size-row">
+              <el-select
+                v-model="ratioLabel"
+                placeholder="常用比例"
+                clearable
+                style="width: 120px"
+                @update:model-value="(v: string | number | undefined) => v && applyRatioPreset(String(v))"
+              >
+                <el-option
+                  v-for="r in RATIO_PRESETS"
+                  :key="r.label"
+                  :value="r.label"
+                  :label="r.label"
+                />
+              </el-select>
+              <el-select
+                placeholder="分辨率预设"
+                clearable
+                style="width: 150px"
+                @update:model-value="(v: string | number | undefined) => v && applyResPreset(String(v))"
+              >
+                <el-option
+                  v-for="r in RES_PRESETS"
+                  :key="r.label"
+                  :value="r.label"
+                  :label="r.label"
+                />
+              </el-select>
+              <el-checkbox v-model="lockRatio">锁定比例</el-checkbox>
+            </div>
+            <div class="cc-size-row">
+              <span class="cc-size-dim">宽</span>
+              <el-input-number
+                :model-value="Number(values['width']) || 0"
+                @update:model-value="(v: number | undefined) => { values['width'] = (v ?? 0); onSizeChange('width'); }"
+                :min="widthField?.min"
+                :max="widthField?.max"
+                :step="widthField?.step ?? 16"
+                controls-position="right"
+              />
+              <span class="cc-size-dim">高</span>
+              <el-input-number
+                :model-value="Number(values['height']) || 0"
+                @update:model-value="(v: number | undefined) => { values['height'] = (v ?? 0); onSizeChange('height'); }"
+                :min="heightField?.min"
+                :max="heightField?.max"
+                :step="heightField?.step ?? 16"
+                controls-position="right"
+              />
+            </div>
+          </div>
+        </el-form-item>
+
         <el-form-item
-          v-for="f in fields"
+          v-for="f in fields.filter((x) => !(x.key === 'width' || x.key === 'height'))"
           :key="f.key"
           :label="f.label"
           :required="f.required"
@@ -345,5 +469,21 @@ function paramDisplay(f: GenerationField): string {
   display: flex;
   align-items: center;
   gap: 0.75rem;
+}
+.cc-size-control {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  width: 100%;
+}
+.cc-size-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.cc-size-dim {
+  color: #64748b;
+  font-size: 0.85rem;
+  flex-shrink: 0;
 }
 </style>

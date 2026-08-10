@@ -66,7 +66,7 @@ function promptText(g: GenerationSummary): string {
     />
 
     <div class="cc-filters">
-      <el-select v-model="statusFilter" placeholder="全部状态" clearable style="width: 200px" @change="refresh">
+      <el-select v-model="statusFilter" placeholder="全部状态" clearable style="width: 200px" @change="() => refresh()">
         <el-option value="" label="全部状态" />
         <el-option value="queued" label="排队中" />
         <el-option value="running" label="执行中" />
