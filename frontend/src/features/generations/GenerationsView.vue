@@ -3,8 +3,8 @@ import { ref } from "vue";
 import Modal from "@/components/Modal.vue";
 import GenerationCreateModal from "./GenerationCreateModal.vue";
 import GenerationDetailModal from "./GenerationDetailModal.vue";
-import GenerationRow from "./GenerationRow.vue";
 import { useGenerations } from "./useGenerations";
+import { api } from "@/services/api";
 import type { GenerationSummary } from "@/types/api";
 
 const { items, loading, error, statusFilter, refresh, remove } = useGenerations();
@@ -19,56 +19,107 @@ async function doDelete() {
   await remove(confirmDelete.value.id);
   confirmDelete.value = null;
 }
+
+const statusLabel: Record<string, string> = {
+  queued: "排队中",
+  running: "执行中",
+  success: "成功",
+  failed: "失败",
+};
+
+function statusType(status: string): "success" | "warning" | "danger" | "info" {
+  if (status === "success") return "success";
+  if (status === "failed") return "danger";
+  if (status === "running" || status === "queued") return "warning";
+  return "info";
+}
+
+function fmtTime(iso: string) {
+  return new Date(iso).toLocaleString();
+}
+
+function thumbUrl(g: GenerationSummary): string | null {
+  const first = g.outputs[0];
+  return first ? api.generations.imageUrl(g.id, first) : null;
+}
+
+function promptText(g: GenerationSummary): string {
+  const p = g.parameters["positive_prompt"];
+  return typeof p === "string" ? p : "";
+}
 </script>
 
 <template>
-  <div class="page">
-    <div class="toolbar">
+  <div>
+    <div class="cc-toolbar">
       <h2>生成</h2>
-      <div class="spacer" />
-      <button class="btn" @click="showCreate = true">+ 新建生成</button>
+      <div class="cc-spacer" />
+      <el-button type="primary" @click="showCreate = true">+ 新建生成</el-button>
     </div>
 
-    <div v-if="error" class="err">{{ error }}</div>
+    <el-alert
+      v-if="error"
+      :title="error"
+      type="error"
+      :closable="false"
+      show-icon
+    />
 
-    <div class="filters">
-      <select v-model="statusFilter" class="status" @change="refresh">
-        <option value="">全部状态</option>
-        <option value="queued">排队中</option>
-        <option value="running">执行中</option>
-        <option value="success">成功</option>
-        <option value="failed">失败</option>
-      </select>
+    <div class="cc-filters">
+      <el-select v-model="statusFilter" placeholder="全部状态" clearable style="width: 200px" @change="refresh">
+        <el-option value="" label="全部状态" />
+        <el-option value="queued" label="排队中" />
+        <el-option value="running" label="执行中" />
+        <el-option value="success" label="成功" />
+        <el-option value="failed" label="失败" />
+      </el-select>
     </div>
 
-    <table v-if="loading && items.length === 0" class="table">
-      <tbody><tr><td>加载中…</td></tr></tbody>
-    </table>
-    <table v-else class="table">
-      <thead>
-        <tr><th>图</th><th>提示词</th><th>工作流</th><th>状态</th><th>时间</th><th>操作</th></tr>
-      </thead>
-      <tbody>
-        <GenerationRow
-          v-for="g in items"
-          :key="g.id"
-          :generation="g"
-          @view="detail = g"
-          @regenerate="regenerate = g"
-          @delete="confirmDelete = g"
-        />
-      </tbody>
-    </table>
+    <el-table :data="items" v-loading="loading" stripe style="width: 100%">
+      <el-table-column label="图" width="72">
+        <template #default="{ row }">
+          <el-image
+            v-if="thumbUrl(row)"
+            :src="thumbUrl(row)!"
+            fit="cover"
+            style="width: 40px; height: 40px; border-radius: 4px"
+            :preview-src-list="[thumbUrl(row)!]"
+          />
+          <div v-else class="cc-thumb-placeholder" />
+        </template>
+      </el-table-column>
+      <el-table-column label="提示词" min-width="240">
+        <template #default="{ row }">
+          <span class="cc-prompt">{{ promptText(row) || "—" }}</span>
+        </template>
+      </el-table-column>
+      <el-table-column label="工作流" min-width="160">
+        <template #default="{ row }">{{ row.workflow_name }}</template>
+      </el-table-column>
+      <el-table-column label="状态" width="120">
+        <template #default="{ row }">
+          <el-tag :type="statusType(row.status)" size="small">
+            {{ statusLabel[row.status] ?? row.status }}
+          </el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column label="时间" width="180">
+        <template #default="{ row }">{{ fmtTime(row.created_at) }}</template>
+      </el-table-column>
+      <el-table-column label="操作" width="180" align="right">
+        <template #default="{ row }">
+          <el-button link type="primary" @click="detail = row">查看</el-button>
+          <el-button link type="primary" @click="regenerate = row">再生成</el-button>
+          <el-button link type="danger" @click="confirmDelete = row">删除</el-button>
+        </template>
+      </el-table-column>
+      <template #empty>
+        <el-empty description="暂无生成记录" />
+      </template>
+    </el-table>
 
-    <GenerationCreateModal
-      v-if="showCreate"
-      @close="showCreate = false"
-    />
-    <GenerationCreateModal
-      v-if="regenerate"
-      :preset="regenerate"
-      @close="regenerate = null"
-    />
+    <GenerationCreateModal v-if="showCreate" @close="showCreate = false" />
+    <GenerationCreateModal v-if="regenerate" :preset="regenerate" @close="regenerate = null" />
     <GenerationDetailModal
       v-if="detail"
       :generation-id="detail.id"
@@ -78,25 +129,40 @@ async function doDelete() {
 
     <Modal v-if="confirmDelete" title="删除生成记录" @close="confirmDelete = null">
       <p>确定删除该生成记录及其图片？</p>
-      <div class="actions">
-        <button class="btn" @click="confirmDelete = null">取消</button>
-        <button class="btn danger" @click="doDelete">删除</button>
-      </div>
+      <template #footer>
+        <el-button @click="confirmDelete = null">取消</el-button>
+        <el-button type="danger" @click="doDelete">删除</el-button>
+      </template>
     </Modal>
   </div>
 </template>
 
-<style scoped>
-.page { max-width: 1100px; }
-.toolbar { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.75rem; }
-.spacer { flex: 1; }
-.err { color: #ef4444; margin: 0.5rem 0; }
-.filters { margin-bottom: 0.75rem; }
-.status { padding: 0.4rem; border: 1px solid #cbd5e1; border-radius: 6px; }
-.table { width: 100%; border-collapse: collapse; }
-.table th, .table td { text-align: left; padding: 0.5rem 0.75rem; border-bottom: 1px solid #e2e8f0; }
-.table th { background: #f8fafc; color: #475569; }
-.actions { display: flex; gap: 0.5rem; justify-content: flex-end; }
-.btn { padding: 0.4rem 0.9rem; border: 1px solid #cbd5e1; border-radius: 6px; background: #fff; cursor: pointer; }
-.btn.danger { background: #ef4444; border-color: #ef4444; color: #fff; }
+<style lang="scss" scoped>
+.cc-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+.cc-spacer {
+  flex: 1;
+}
+.cc-filters {
+  margin-bottom: 0.75rem;
+}
+.cc-thumb-placeholder {
+  display: inline-block;
+  width: 40px;
+  height: 40px;
+  background: #e2e8f0;
+  border-radius: 4px;
+}
+.cc-prompt {
+  display: inline-block;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
 </style>
