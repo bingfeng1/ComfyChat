@@ -13,12 +13,12 @@
 映射与来源可自动识别,多来源按优先级回退:
 
 1. **工作流连线追踪**(最强、100% 可靠):`LoraLoader` / `LoraLoaderModelOnly` 节点的 `model` 输入经 `links` 连线指回主模型加载器节点(CheckpointLoaderSimple/UNETLoader/CLIPLoader 等),取其 `ckpt_name`/`unet_name`/`model_name` 即主模型文件名。已有同类解析先例(`workflow_to_api_template`、`_conditioning_labels`)。
-2. **safetensors metadata**(可靠):部分 LoRA 头部含 `base_model` / `compatible_base`(如 minimax 明确标 `MiniMax-H3`);Modelscope 下载的含 `repoId` + `url`,可借此调 ModelScope API 拿官方 `BaseModel` + `TriggerWords`(实测 `mumu_20` → Z-Image-Turbo、`coser-z` → Z-Image,都拿到了准确结果)。
+2. **safetensors metadata**(可靠):部分 LoRA 头部含 `base_model` / `compatible_base`(如 minimax 明确标 `MiniMax-H3`);Modelscope 下载的含 `repoId` + `url`,可借此调 ModelScope API 拿官方 `BaseModel` + `TriggerWords`(实测 `mumu_20` → Z-Image-Turbo、`coser-z` → Z-Image,都拿到了准确结果)。HuggingFace 模型卡(`huggingface.co/api/models?search={name}`)也是可靠的权威来源——实测 `Smnth_v1_NSFW1` 命中 `Kakelaka/Smnth_v1_NSFW1`,`base_model: Tongyi-MAI/Z-Image-Turbo` + `instance_prompt`。
 3. **张量结构签名**(架构族判定):`lora_unet_down_blocks_*_attn1` → SD1.5;`lora_unet_down_blocks_*`(diffusers 风格)→ SDXL;`diffusion_model.transformer_blocks` → Qwen-Image;`diffusion_model.blocks.adaln_proj` → MiniMax-H3;`context_refiner/layers/noise_refiner` → Z-Image 系。
 
 **不采用**文件名/生态知识硬猜(实测 coser-z 文件名像 SD 实为 Z-Image,已踩坑)。
 
-已调研本机 19 个 LoRA:17 个可确认主模型(SD1.5/SDXL/Z-Image/Z-Image-Turbo/MiniMax-H3/Qwen-Image),1 个不确定(`Smnth_v1_NSFW1`,疑似 Z-Image 系,留空),另有 1 个(Qwen 系)可从张量判定。
+已调研本机 19 个 LoRA:全部可确认主模型——SD1.5 / SDXL / Z-Image / Z-Image-Turbo / MiniMax-H3 / Qwen-Image 六系。`Smnth_v1_NSFW1` 经 HuggingFace 模型卡(`Kakelaka/Smnth_v1_NSFW1`, `base_model: Tongyi-MAI/Z-Image-Turbo`, 触发词 `Smnth_v1`)确认。
 
 ## Non-Goals
 
@@ -57,6 +57,8 @@
 1. **工作流追踪**(对每个 LoRA 扫描全部 workflow body + generation config api_template):找到使用该 lora_name 的 `LoraLoader*` 节点 → 沿 `model` 输入连回主模型加载器 → 记录 `(lora, model)`,source=`workflow`。
 2. **metadata 读取**(需 `comfyui_loras_dir`):读文件头 JSON,取 `base_model`/`compatible_base`(定 `base_family`)、`repoId`(若有)→ 调 ModelScope API `https://modelscope.cn/api/v1/models/{repoId}` 拿 `BaseModel`(补映射)+ `TriggerWords` + 来源 URL。source=`metadata`。
 3. **张量签名**:读头部 JSON 的 tensor 键前缀,判定架构族,写 `base_family`(不一定能定具体模型文件,所以 `lora_model_links` 主要靠来源 1/2;张量结果只更新 `loras.base_family`)。source=`tensor`。
+
+联网识别细节:ModelScope 按 metadata 里的 `repoId` 精确查询;HuggingFace 按文件名 `search` 且取结果中 `id` 与文件名**完全匹配**(去掉扩展名)的候选,多个命中时取下载量最高者,全部不匹配则跳过。两者都失败时静默跳过,不报错。
 
 合并规则:映射表以「工作流 + metadata」为准;`base_family` 以「metadata > 张量」优先。识别不到的部分留空。联网失败/超时静默跳过(不抛错、不阻塞),已有数据保留。清理失效行(文件不存在 / 主模型不再被引用)。
 
@@ -108,4 +110,4 @@
 ## Open Questions
 
 - 张量签名到「具体主模型文件」的映射存在局限:架构族能定(SD1.5/SDXL/DiT),但同一架构族内多个具体模型文件无法区分,故 `lora_model_links` 的 `tensor` 来源本期不写具体模型,只写 `base_family`。确认该取舍。
-- ModelScope 识别依赖 `repoId` 在 metadata 中;非 Modelscope 来源(如 CivitAI 直下)的 LoRA 只有工作流/张量两来源。
+- ModelScope / HuggingFace 识别依赖 metadata 中 `repoId`(Modelscope)或文件名能被 HF 搜索命中(HuggingFace 按文件名 search);两平台都查不到的 LoRA 只有工作流/张量两来源。联网识别失败一律静默跳过。
