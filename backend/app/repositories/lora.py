@@ -40,12 +40,19 @@ class LoraRepository:
 
     def replace_links(self, lora_name: str, models: list[str], source: str) -> None:
         self.session.execute(
-            sa_delete(LoraModelLink).where(LoraModelLink.lora_name == lora_name)
+            sa_delete(LoraModelLink).where(
+                LoraModelLink.lora_name == lora_name,
+                LoraModelLink.source == source,
+            )
         )
         for model in models:
-            self.session.add(
-                LoraModelLink(lora_name=lora_name, model_name=model, source=source)
-            )
+            link = self.session.get(LoraModelLink, (lora_name, model))
+            if link is None:
+                self.session.add(
+                    LoraModelLink(lora_name=lora_name, model_name=model, source=source)
+                )
+            else:
+                link.source = source
         self.session.commit()
 
     def list_all(self) -> list[tuple[str, list[str]]]:
