@@ -260,6 +260,7 @@ function paramDisplay(f: GenerationField): string {
       </div>
 
       <div v-else-if="step === 2 && needsFieldsStep" class="cc-step-body">
+        <el-form label-width="90px" label-position="left" class="cc-params-form">
         <el-form-item v-if="hasSizeFields" label="尺寸">
           <div class="cc-size-control">
             <div class="cc-size-row">
@@ -293,7 +294,6 @@ function paramDisplay(f: GenerationField): string {
               <el-checkbox v-model="lockRatio">锁定比例</el-checkbox>
             </div>
             <div class="cc-size-row">
-              <span class="cc-size-dim">宽</span>
               <el-input-number
                 :model-value="Number(values['width']) || 0"
                 @update:model-value="(v: number | undefined) => { values['width'] = (v ?? 0); onSizeChange('width'); }"
@@ -301,8 +301,9 @@ function paramDisplay(f: GenerationField): string {
                 :max="widthField?.max"
                 :step="widthField?.step ?? 16"
                 controls-position="right"
+                style="width: 140px"
               />
-              <span class="cc-size-dim">高</span>
+              <span class="cc-size-times">×</span>
               <el-input-number
                 :model-value="Number(values['height']) || 0"
                 @update:model-value="(v: number | undefined) => { values['height'] = (v ?? 0); onSizeChange('height'); }"
@@ -310,6 +311,7 @@ function paramDisplay(f: GenerationField): string {
                 :max="heightField?.max"
                 :step="heightField?.step ?? 16"
                 controls-position="right"
+                style="width: 140px"
               />
             </div>
           </div>
@@ -366,6 +368,7 @@ function paramDisplay(f: GenerationField): string {
             @update:model-value="(v: string) => values[f.key] = v ?? ''"
           />
         </el-form-item>
+        </el-form>
       </div>
 
       <div v-else class="cc-step-body">
@@ -470,6 +473,9 @@ function paramDisplay(f: GenerationField): string {
   align-items: center;
   gap: 0.75rem;
 }
+.cc-params-form {
+  width: 100%;
+}
 .cc-size-control {
   display: flex;
   flex-direction: column;
@@ -481,9 +487,15 @@ function paramDisplay(f: GenerationField): string {
   align-items: center;
   gap: 0.5rem;
 }
-.cc-size-dim {
-  color: #64748b;
-  font-size: 0.85rem;
+.cc-size-times {
+  color: #94a3b8;
+  font-size: 0.9rem;
   flex-shrink: 0;
+}
+:deep(.cc-params-form .el-form-item__content) {
+  width: 100%;
+}
+:deep(.cc-params-form .el-select) {
+  width: 100%;
 }
 </style>
