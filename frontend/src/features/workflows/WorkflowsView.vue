@@ -9,6 +9,9 @@ import WorkflowHistoryModal from "./WorkflowHistoryModal.vue";
 import WorkflowGenerationConfigModal from "./WorkflowGenerationConfigModal.vue";
 import { useWorkflows } from "./useWorkflows";
 import type { WorkflowSummary } from "@/types/api";
+import { useRouter } from "vue-router";
+import { api } from "@/services/api";
+import GenerationCreateModal from "@/features/generations/GenerationCreateModal.vue";
 
 const {
   items,
@@ -32,6 +35,9 @@ const historyOf = ref<WorkflowSummary | null>(null);
 const configOf = ref<WorkflowSummary | null>(null);
 const confirmDelete = ref<WorkflowSummary | null>(null);
 const pendingFile = ref<File | null>(null);
+const router = useRouter();
+const createFor = ref<WorkflowSummary | null>(null);
+const configChainsToGenerate = ref(false);
 
 async function handleChosen(file: File) {
   pendingFile.value = file;
@@ -85,6 +91,38 @@ async function onExport(id: string) {
   a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+async function openGenerateFor(row: WorkflowSummary) {
+  try {
+    const cfg = await api.workflows.generationConfig.get(row.id);
+    if (cfg) {
+      createFor.value = row;
+    } else {
+      configOf.value = row;
+      configChainsToGenerate.value = true;
+    }
+  } catch (err) {
+    alert(err instanceof Error ? err.message : String(err));
+  }
+}
+
+function onConfigSaved() {
+  doSearch();
+  if (configChainsToGenerate.value) {
+    createFor.value = configOf.value;
+    configChainsToGenerate.value = false;
+  }
+}
+
+function onConfigClosed() {
+  configOf.value = null;
+  configChainsToGenerate.value = false;
+}
+
+function onGenerated() {
+  createFor.value = null;
+  router.push("/generations");
 }
 
 function fmtSize(bytes: number) {
@@ -150,7 +188,9 @@ const sourceLabel: Record<string, string> = {
     <el-table :data="items" v-loading="loading" stripe style="width: 100%">
       <el-table-column label="名称" min-width="240">
         <template #default="{ row }">
-          <span class="cc-name">{{ row.name }}.json</span>
+          <el-button link type="primary" class="cc-name" @click="openGenerateFor(row)">
+            {{ row.name }}.json
+          </el-button>
         </template>
       </el-table-column>
       <el-table-column label="来源" width="120">
@@ -209,8 +249,15 @@ const sourceLabel: Record<string, string> = {
       v-if="configOf"
       :workflow-id="configOf.id"
       :title="configOf.name"
-      @close="configOf = null"
-      @saved="doSearch"
+      @close="onConfigClosed"
+      @saved="onConfigSaved"
+    />
+
+    <GenerationCreateModal
+      v-if="createFor"
+      :preselect-workflow-id="createFor.id"
+      @close="createFor = null"
+      @generated="onGenerated"
     />
 
     <Modal v-if="confirmDelete" title="删除工作流" @close="confirmDelete = null">
