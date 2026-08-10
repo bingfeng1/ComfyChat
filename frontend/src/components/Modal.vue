@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { ref } from "vue";
 
-const props = defineProps<{ title: string }>();
+const props = withDefaults(
+  defineProps<{ title: string; width?: string }>(),
+  { width: "680px" },
+);
 const emit = defineEmits<{ close: [] }>();
 
 const show = ref(true);
@@ -16,7 +19,7 @@ function requestClose() {
   <el-dialog
     v-model="show"
     :title="props.title"
-    width="680px"
+    :width="props.width"
     :close-on-click-modal="true"
     :close-on-press-escape="true"
     @close="requestClose"

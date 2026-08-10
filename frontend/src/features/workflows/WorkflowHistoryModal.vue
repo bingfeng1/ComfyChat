@@ -58,7 +58,11 @@ watch(() => props.workflowId, load, { immediate: true });
 </script>
 
 <template>
-  <Modal :title="`历史工作流：${props.title}`" @close="emit('close')">
+  <Modal
+    :title="`历史工作流：${props.title}`"
+    width="880px"
+    @close="emit('close')"
+  >
     <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
 
     <div v-if="viewBody || viewError" class="cc-viewer">
@@ -71,11 +75,11 @@ watch(() => props.workflowId, load, { immediate: true });
       <el-table-column label="版本" width="80">
         <template #default="{ row }">v{{ row.version }}</template>
       </el-table-column>
-      <el-table-column label="名称" min-width="160" prop="name" />
+      <el-table-column label="名称" min-width="220" prop="name" />
       <el-table-column label="大小" width="100">
         <template #default="{ row }">{{ fmtSize(row.size_bytes) }}</template>
       </el-table-column>
-      <el-table-column label="归档于" width="180">
+      <el-table-column label="归档于" width="200">
         <template #default="{ row }">{{ fmtTime(row.captured_at) }}</template>
       </el-table-column>
       <el-table-column label="操作" width="160" align="right">
@@ -101,13 +105,15 @@ watch(() => props.workflowId, load, { immediate: true });
   gap: 0.5rem;
 }
 .cc-json {
-  max-height: 50vh;
+  max-height: 60vh;
   overflow: auto;
   background: #0f172a;
   color: #a5b4fc;
   padding: 1rem;
   border-radius: 6px;
   font-size: 0.8rem;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 .cc-empty {
   color: #64748b;

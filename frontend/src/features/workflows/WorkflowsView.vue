@@ -164,13 +164,19 @@ const sourceLabel: Record<string, string> = {
       <el-table-column label="更新于" width="200">
         <template #default="{ row }">{{ fmtTime(row.updated_at) }}</template>
       </el-table-column>
-      <el-table-column label="操作" width="220" align="right">
+      <el-table-column label="历史" width="72" align="center">
         <template #default="{ row }">
           <el-button
             v-if="row.source === 'browse' && row.has_history"
             link
+            type="primary"
             @click="historyOf = row"
           >历史</el-button>
+          <span v-else class="cc-muted">—</span>
+        </template>
+      </el-table-column>
+      <el-table-column label="操作" width="200" align="right">
+        <template #default="{ row }">
           <el-button
             v-if="row.source === 'browse'"
             link
@@ -235,6 +241,9 @@ const sourceLabel: Record<string, string> = {
 }
 .cc-name {
   font-weight: 500;
+}
+.cc-muted {
+  color: #cbd5e1;
 }
 :deep(.cc-toolbar .el-button + .el-button) {
   margin-left: 0;
