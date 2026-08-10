@@ -207,6 +207,13 @@ function paramDisplay(f: GenerationField): string {
               />
             </div>
           </template>
+          <el-input-number
+            v-else-if="f.type === 'number'"
+            :model-value="values[f.key] as number | undefined"
+            @update:model-value="(v: number | undefined) => values[f.key] = (v ?? 0)"
+            controls-position="right"
+            style="width: 100%"
+          />
           <el-input
             v-else
             type="textarea"
