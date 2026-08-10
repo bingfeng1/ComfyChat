@@ -18,7 +18,7 @@
 
 **不采用**文件名/生态知识硬猜(实测 coser-z 文件名像 SD 实为 Z-Image,已踩坑)。
 
-已调研本机 19 个 LoRA:全部可确认主模型——SD1.5 / SDXL / Z-Image / Z-Image-Turbo / MiniMax-H3 / Qwen-Image 六系。`Smnth_v1_NSFW1` 经 HuggingFace 模型卡(`Kakelaka/Smnth_v1_NSFW1`, `base_model: Tongyi-MAI/Z-Image-Turbo`, 触发词 `Smnth_v1`)确认。
+已调研本机 20 个 LoRA(19 个 `.safetensors` + 1 个 `.ckpt`):全部可确认主模型——SD1.5 / SDXL / Z-Image / Z-Image-Turbo / MiniMax-H3 / Qwen-Image 六系。`Smnth_v1_NSFW1` 经 HuggingFace 模型卡(`Kakelaka/Smnth_v1_NSFW1`, `base_model: Tongyi-MAI/Z-Image-Turbo`, 触发词 `Smnth_v1`)确认;`v3_sd15_adapter.ckpt` 是 SD1.5 系 ip-adapter faceid v3 adapter(文件名 + diffusers 张量结构)。
 
 ## Non-Goals
 
@@ -32,7 +32,7 @@
 ### `loras` 表(新增,模型文件 `backend/app/models/lora.py`)
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| `name` | String(255) PK | LoRA 文件名,如 `mumu_20.safetensors` |
+| `name` | String(255) PK | LoRA 文件名,如 `mumu_20.safetensors`(含 `.ckpt` 等非 safetensors 格式) |
 | `base_family` | String | 架构族标签:SD1.5 / SDXL / Z-Image / MiniMax-H3 / Qwen-Image / unknown |
 | `source_url` | String nullable | 来源 URL(Modelscope 等,自动填) |
 | `trigger_words` | String nullable | 触发词(JSON 数组字符串;ModelScope 返回时记录,仅展示) |
@@ -49,6 +49,7 @@
 
 ### `Settings` 新增字段
 - `comfyui_loras_dir: str = ""`(可选)。配了才读 LoRA 文件 metadata;不配则跳过 metadata/张量来源(工作流追踪仍可用)。
+- 格式处理:`.safetensors` 读头部 JSON metadata(含 `__metadata__`);`.ckpt`/`.pt` 是 PyTorch pickle 格式,无统一 metadata 头,只做张量键名结构判定。
 
 ## 识别逻辑(纯函数,`backend/app/services/lora.py`)
 
