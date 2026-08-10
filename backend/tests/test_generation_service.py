@@ -398,3 +398,48 @@ def test_discover_fields_excludes_loader_inputs():
     assert "device" not in keys
     assert "lora_name" not in keys
     assert "strength_model" in keys
+
+COND_BODY = {
+    "nodes": [
+        {
+            "id": 7,
+            "type": "CLIPTextEncode",
+            "inputs": [
+                {"name": "clip", "localized_name": "clip", "link": 1},
+                {"name": "text", "localized_name": "文本", "widget": {"name": "text"}},
+            ],
+            "widgets_values": ["a cat"],
+        },
+        {
+            "id": 8,
+            "type": "CLIPTextEncode",
+            "inputs": [
+                {"name": "clip", "localized_name": "clip", "link": 2},
+                {"name": "text", "localized_name": "文本", "widget": {"name": "text"}},
+            ],
+            "widgets_values": ["blurry"],
+        },
+        {
+            "id": 16,
+            "type": "KSampler",
+            "inputs": [
+                {"name": "positive", "localized_name": "正面", "link": 11},
+                {"name": "negative", "localized_name": "负面", "link": 12},
+            ],
+            "widgets_values": [],
+        },
+    ],
+    "links": [
+        [1, 4, 0, 7, 0, "CLIP"],
+        [2, 4, 0, 8, 0, "CLIP"],
+        [11, 7, 0, 16, 1, "CONDITIONING"],
+        [12, 8, 0, 16, 2, "CONDITIONING"],
+    ],
+}
+
+
+def test_discover_fields_labels_positive_negative():
+    fields = discover_fields(COND_BODY)
+    texts = {f["node_id"]: f["label"] for f in fields if f["input_name"] == "text"}
+    assert texts["7"] == "正面提示词"
+    assert texts["8"] == "负面提示词"

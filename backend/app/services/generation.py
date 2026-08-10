@@ -162,12 +162,37 @@ def _field_meta(object_info: dict | None, node_type: str, input_name: str) -> di
     return meta
 
 
+def _conditioning_labels(body_json: dict) -> dict[str, str]:
+    """解析连线,返回 {CLIPTextEncode 节点 id: "正面提示词"|"负面提示词"}。
+
+    判定方式: 找 KSampler 的 positive/negative 输入各连到哪个源节点。
+    用 input 的 link id 反查 links 数组的 [id, from_node, ...]。
+    """
+    labels: dict[str, str] = {}
+    links = body_json.get("links", [])
+    links_by_id = {l[0]: l for l in links}
+    for node in body_json.get("nodes", []):
+        if node.get("type") != "KSampler":
+            continue
+        for inp in node.get("inputs", []):
+            role = inp.get("name")
+            if role not in ("positive", "negative"):
+                continue
+            link = links_by_id.get(inp.get("link"))
+            if link is None:
+                continue
+            from_node = str(link[1])
+            labels[from_node] = "正面提示词" if role == "positive" else "负面提示词"
+    return labels
+
+
 def discover_fields(body_json: dict, object_info: dict | None = None) -> list[dict]:
     """从 UI 格式 body 返回候选字段(形状与 GenerationField 一致)。
 
     只为值类型是标量(str/int/float/bool/None)的 widget 输入生成候选。
     连线输入(带 'link')跳过。带 object_info 时补 min/max/step/options 与类型。
     """
+    cond_labels = _conditioning_labels(body_json)
     candidates: list[dict] = []
     for node in body_json.get("nodes", []):
         node_id = str(node["id"])
@@ -180,10 +205,13 @@ def discover_fields(body_json: dict, object_info: dict | None = None) -> list[di
             if not isinstance(value, (str, int, float, bool)) and value is not None:
                 continue
             label = f"[{node_type}] {name}"
-            for i in node.get("inputs", []):
-                if i.get("name") == name and i.get("localized_name"):
-                    label = i["localized_name"]
-                    break
+            if node_type == "CLIPTextEncode" and node_id in cond_labels:
+                label = cond_labels[node_id]
+            else:
+                for i in node.get("inputs", []):
+                    if i.get("name") == name and i.get("localized_name"):
+                        label = i["localized_name"]
+                        break
             candidate: dict = {
                 "key": name,
                 "label": label,
