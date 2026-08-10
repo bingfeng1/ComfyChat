@@ -1,64 +1,71 @@
 <script setup lang="ts">
+import { computed } from "vue";
 import { useRoute } from "vue-router";
+import { Folder, Picture } from "@element-plus/icons-vue";
 
 const route = useRoute();
 
-const items = [
-  { to: "/workflows", label: "工作流", icon: "📁" },
-  { to: "/generations", label: "生成", icon: "🖼" },
+interface NavItem {
+  to: string;
+  label: string;
+  icon: typeof Folder;
+  match: string;
+}
+
+const items: NavItem[] = [
+  { to: "/workflows", label: "工作流", icon: Folder, match: "/workflows" },
+  { to: "/generations", label: "生成", icon: Picture, match: "/generations" },
 ];
 
-function isActive(to: string) {
-  return route.path.startsWith(to);
-}
+const active = computed(() => {
+  for (const item of items) {
+    if (route.path.startsWith(item.match)) return item.to;
+  }
+  return "";
+});
 </script>
 
 <template>
-  <aside class="sidebar">
-    <div class="brand">ComfyChat</div>
-    <nav>
-      <router-link
-        v-for="item in items"
-        :key="item.to"
-        :to="item.to"
-        class="nav-item"
-        :class="{ active: isActive(item.to) }"
-      >
-        <span>{{ item.icon }}</span>
-        <span>{{ item.label }}</span>
-      </router-link>
-    </nav>
+  <aside class="cc-sidebar">
+    <div class="cc-brand">ComfyChat</div>
+    <el-menu :default-active="active" router class="cc-menu">
+      <el-menu-item v-for="item in items" :key="item.to" :index="item.to">
+        <el-icon><component :is="item.icon" /></el-icon>
+        <template #title>{{ item.label }}</template>
+      </el-menu-item>
+    </el-menu>
   </aside>
 </template>
 
-<style scoped>
-.sidebar {
-  width: 220px;
-  background: #1e293b;
-  color: #e2e8f0;
+<style lang="scss" scoped>
+@use "@/styles/variables" as *;
+
+.cc-sidebar {
+  width: $cc-sidebar-width;
+  background: $cc-sidebar-bg;
+  color: $cc-sidebar-text;
   display: flex;
   flex-direction: column;
-  padding: 1rem;
-  gap: 1rem;
+  padding: 1rem 0;
 }
-.brand {
+.cc-brand {
   font-size: 1.1rem;
   font-weight: 700;
-}
-.nav-item {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 0.75rem;
-  border-radius: 6px;
-  color: inherit;
-  text-decoration: none;
-}
-.nav-item:hover {
-  background: #334155;
-}
-.nav-item.active {
-  background: #0ea5e9;
+  padding: 0 1.25rem 1rem;
   color: #fff;
+}
+.cc-menu {
+  background: transparent;
+  border-right: none;
+}
+:deep(.el-menu-item) {
+  color: $cc-sidebar-text;
+}
+:deep(.el-menu-item.is-active) {
+  background: $cc-sidebar-active-bg;
+  border-left: 3px solid $cc-sidebar-active-border;
+}
+:deep(.el-menu-item:hover) {
+  background: rgba(255, 255, 255, 0.06);
 }
 </style>

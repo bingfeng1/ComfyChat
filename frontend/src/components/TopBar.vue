@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
+import { Refresh } from "@element-plus/icons-vue";
 import { api } from "@/services/api";
 import type { HealthStatus } from "@/types/api";
 
@@ -15,65 +16,63 @@ async function check() {
   }
 }
 
+const tagType = computed<"success" | "danger" | "info">(() => {
+  if (error.value) return "danger";
+  if (!health.value) return "info";
+  return health.value.status === "ok" ? "success" : "danger";
+});
+
+const tagText = computed(() => {
+  if (error.value) return "后端不可达";
+  if (!health.value) return "检查中…";
+  return health.value.status === "ok" ? "运行正常" : "异常";
+});
+
 onMounted(check);
 </script>
 
 <template>
-  <header class="topbar">
-    <h1>ComfyChat</h1>
-    <div class="health">
-      <template v-if="error">
-        <span class="dot error"></span>
-        <span>后端不可达</span>
-      </template>
-      <template v-else-if="health">
-        <span class="dot" :class="health.status === 'ok' ? 'ok' : 'error'"></span>
-        <span>{{ health.status === "ok" ? "运行正常" : "异常" }}</span>
-        <span class="sub">{{ health.comfyui }}</span>
-      </template>
-      <template v-else>
-        <span class="dot loading"></span>
-        <span>检查中…</span>
-      </template>
-      <button class="refresh" title="重新检查" @click="check">↻</button>
+  <el-header class="cc-topbar">
+    <h1 class="cc-title">ComfyChat</h1>
+    <div class="cc-health">
+      <el-tag :type="tagType" size="small">{{ tagText }}</el-tag>
+      <span v-if="health" class="cc-sub">{{ health.comfyui }}</span>
+      <el-button
+        :icon="Refresh"
+        circle
+        size="small"
+        title="重新检查"
+        @click="check"
+      />
     </div>
-  </header>
+  </el-header>
 </template>
 
-<style scoped>
-.topbar {
+<style lang="scss" scoped>
+@use "@/styles/variables" as *;
+
+.cc-topbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0.75rem 1.5rem;
-  border-bottom: 1px solid #e2e8f0;
+  height: $cc-topbar-height;
+  padding: 0 $cc-content-padding;
+  background: #fff;
+  box-shadow: $cc-topbar-shadow;
 }
-.topbar h1 {
+.cc-title {
   font-size: 1rem;
   margin: 0;
   color: #334155;
 }
-.health {
+.cc-health {
   display: flex;
   align-items: center;
   gap: 0.5rem;
   font-size: 0.85rem;
   color: #64748b;
 }
-.dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  display: inline-block;
-}
-.dot.ok { background: #22c55e; }
-.dot.error { background: #ef4444; }
-.dot.loading { background: #94a3b8; }
-.sub { color: #94a3b8; }
-.refresh {
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  font-size: 1rem;
+.cc-sub {
+  color: #94a3b8;
 }
 </style>

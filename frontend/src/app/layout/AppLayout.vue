@@ -4,31 +4,28 @@ import TopBar from "@/components/TopBar.vue";
 </script>
 
 <template>
-  <div class="layout">
+  <el-container class="cc-shell">
     <Sidebar />
-    <div class="main-col">
+    <el-container direction="vertical" class="cc-main">
       <TopBar />
-      <main class="content">
+      <el-main class="cc-content">
         <router-view />
-      </main>
-    </div>
-  </div>
+      </el-main>
+    </el-container>
+  </el-container>
 </template>
 
-<style scoped>
-.layout {
-  display: flex;
+<style lang="scss" scoped>
+@use "@/styles/variables" as *;
+
+.cc-shell {
   height: 100vh;
 }
-.main-col {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
+.cc-main {
   min-width: 0;
+  background: $cc-content-bg;
 }
-.content {
-  flex: 1;
-  overflow-y: auto;
-  padding: 1.5rem;
+.cc-content {
+  padding: $cc-content-padding;
 }
 </style>
