@@ -1,58 +1,33 @@
 <script setup lang="ts">
-defineProps<{
-  title: string;
-}>();
+import { ref } from "vue";
+
+const props = defineProps<{ title: string }>();
 const emit = defineEmits<{ close: [] }>();
+
+const show = ref(true);
+
+function requestClose() {
+  show.value = false;
+  emit("close");
+}
 </script>
 
 <template>
-  <div class="overlay" @click.self="emit('close')">
-    <div class="modal">
-      <div class="head">
-        <h3>{{ title }}</h3>
-        <button class="x" @click="emit('close')">✕</button>
-      </div>
-      <div class="body">
-        <slot />
-      </div>
-    </div>
-  </div>
+  <el-dialog
+    v-model="show"
+    :title="props.title"
+    width="680px"
+    :close-on-click-modal="true"
+    :close-on-press-escape="true"
+    @close="requestClose"
+  >
+    <slot />
+    <template v-if="$slots.footer" #footer>
+      <slot name="footer" />
+    </template>
+  </el-dialog>
 </template>
 
-<style scoped>
-.overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(15, 23, 42, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 50;
-}
-.modal {
-  background: #fff;
-  border-radius: 8px;
-  width: min(680px, 92vw);
-  max-height: 85vh;
-  display: flex;
-  flex-direction: column;
-}
-.head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0.75rem 1rem;
-  border-bottom: 1px solid #e2e8f0;
-}
-.head h3 { margin: 0; }
-.x {
-  border: none;
-  background: transparent;
-  font-size: 1rem;
-  cursor: pointer;
-}
-.body {
-  padding: 1rem;
-  overflow-y: auto;
-}
+<style lang="scss" scoped>
+@use "@/styles/variables" as *;
 </style>
