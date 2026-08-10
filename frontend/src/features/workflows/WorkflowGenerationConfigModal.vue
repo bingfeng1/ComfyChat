@@ -97,7 +97,7 @@ async function save() {
 
     <template #footer>
       <el-button @click="emit('close')">取消</el-button>
-      <el-button type="primary" :loading="saving" @click="save">
+      <el-button type="primary" :loading="saving" :disabled="loading" @click="save">
         {{ saving ? "保存中…" : "保存" }}
       </el-button>
     </template>
