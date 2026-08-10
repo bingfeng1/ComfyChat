@@ -43,6 +43,18 @@ function togglePrompt(id: string) {
   expandedPrompts.value = next;
 }
 
+function onCreateClosed() {
+  showCreate.value = false;
+  page.value = 1;
+  refresh();
+}
+
+function onRegenerateClosed() {
+  regenerate.value = null;
+  page.value = 1;
+  refresh();
+}
+
 const statusLabel: Record<string, string> = {
   queued: "排队中",
   running: "执行中",
@@ -118,7 +130,7 @@ function promptText(g: GenerationSummary): string {
             {{ promptText(row) || "—" }}
           </div>
           <el-button
-            v-if="promptText(row).length > 60"
+            v-if="promptText(row).length > 60 || promptText(row).includes('\n')"
             link
             type="primary"
             size="small"
@@ -156,8 +168,8 @@ function promptText(g: GenerationSummary): string {
 
     <div class="cc-pagination">
       <el-pagination
-        v-model:current-page="page"
-        v-model:page-size="pageSize"
+        :current-page="page"
+        :page-size="pageSize"
         :total="total"
         :page-sizes="[10, 15, 20, 50]"
         layout="total, sizes, prev, pager, next"
@@ -167,8 +179,8 @@ function promptText(g: GenerationSummary): string {
       />
     </div>
 
-    <GenerationCreateModal v-if="showCreate" @close="showCreate = false" />
-    <GenerationCreateModal v-if="regenerate" :preset="regenerate" @close="regenerate = null" />
+    <GenerationCreateModal v-if="showCreate" @close="onCreateClosed" />
+    <GenerationCreateModal v-if="regenerate" :preset="regenerate" @close="onRegenerateClosed" />
     <GenerationDetailModal
       v-if="detail"
       :generation-id="detail.id"
