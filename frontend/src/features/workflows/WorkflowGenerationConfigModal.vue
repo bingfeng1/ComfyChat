@@ -14,6 +14,23 @@ const loading = ref(true);
 const saving = ref(false);
 const error = ref<string | null>(null);
 
+const DEFAULT_CHECKED_KEYS = new Set(["seed", "width", "height"]);
+const DEFAULT_CHECKED_LABELS = new Set(["正面提示词", "负面提示词"]);
+
+function isDefaultChecked(f: GenerationField): boolean {
+  if (DEFAULT_CHECKED_KEYS.has(f.key)) return true;
+  if (DEFAULT_CHECKED_LABELS.has(f.label)) return true;
+  return false;
+}
+
+function initRemoved(fields: GenerationField[]): Set<string> {
+  const set = new Set<string>();
+  for (const f of fields) {
+    if (!isDefaultChecked(f)) set.add(f.key);
+  }
+  return set;
+}
+
 onMounted(async () => {
   removed.value = new Set();
   try {
@@ -21,10 +38,12 @@ onMounted(async () => {
     if (existing && existing.fields.length > 0) {
       fields.value = existing.fields;
       apiTemplate.value = existing.api_template;
+      removed.value = initRemoved(existing.fields);
     } else {
       const d = await api.workflows.generationConfig.discover(props.workflowId);
       fields.value = d.fields;
       apiTemplate.value = d.api_template;
+      removed.value = initRemoved(d.fields);
     }
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err);
