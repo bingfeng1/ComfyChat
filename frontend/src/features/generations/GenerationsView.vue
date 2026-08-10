@@ -7,17 +7,40 @@ import { useGenerations } from "./useGenerations";
 import { api } from "@/services/api";
 import type { GenerationSummary } from "@/types/api";
 
-const { items, loading, error, statusFilter, refresh, remove } = useGenerations();
+const {
+  items,
+  loading,
+  error,
+  statusFilter,
+  page,
+  pageSize,
+  total,
+  refresh,
+  remove,
+  setPage,
+  setPageSize,
+} = useGenerations();
 
 const showCreate = ref(false);
 const detail = ref<GenerationSummary | null>(null);
 const regenerate = ref<GenerationSummary | null>(null);
 const confirmDelete = ref<GenerationSummary | null>(null);
+const expandedPrompts = ref<Set<string>>(new Set());
 
 async function doDelete() {
   if (!confirmDelete.value) return;
   await remove(confirmDelete.value.id);
   confirmDelete.value = null;
+}
+
+function togglePrompt(id: string) {
+  const next = new Set(expandedPrompts.value);
+  if (next.has(id)) {
+    next.delete(id);
+  } else {
+    next.add(id);
+  }
+  expandedPrompts.value = next;
 }
 
 const statusLabel: Record<string, string> = {
@@ -66,7 +89,7 @@ function promptText(g: GenerationSummary): string {
     />
 
     <div class="cc-filters">
-      <el-select v-model="statusFilter" placeholder="全部状态" clearable style="width: 200px" @change="() => refresh()">
+      <el-select v-model="statusFilter" placeholder="全部状态" clearable style="width: 200px">
         <el-option value="" label="全部状态" />
         <el-option value="queued" label="排队中" />
         <el-option value="running" label="执行中" />
@@ -89,9 +112,21 @@ function promptText(g: GenerationSummary): string {
           <div v-else class="cc-thumb-placeholder" />
         </template>
       </el-table-column>
-      <el-table-column label="提示词" min-width="240">
+      <el-table-column label="提示词" min-width="240" :show-overflow-tooltip="false">
         <template #default="{ row }">
-          <span class="cc-prompt">{{ promptText(row) || "—" }}</span>
+          <div :class="['cc-prompt', { 'is-expanded': expandedPrompts.has(row.id) }]">
+            {{ promptText(row) || "—" }}
+          </div>
+          <el-button
+            v-if="promptText(row).length > 60"
+            link
+            type="primary"
+            size="small"
+            class="cc-prompt-toggle"
+            @click="togglePrompt(row.id)"
+          >
+            {{ expandedPrompts.has(row.id) ? "收起" : "展开全文" }}
+          </el-button>
         </template>
       </el-table-column>
       <el-table-column label="工作流" min-width="160">
@@ -118,6 +153,19 @@ function promptText(g: GenerationSummary): string {
         <el-empty description="暂无生成记录" />
       </template>
     </el-table>
+
+    <div class="cc-pagination">
+      <el-pagination
+        v-model:current-page="page"
+        v-model:page-size="pageSize"
+        :total="total"
+        :page-sizes="[10, 15, 20, 50]"
+        layout="total, sizes, prev, pager, next"
+        background
+        @current-change="setPage"
+        @size-change="setPageSize"
+      />
+    </div>
 
     <GenerationCreateModal v-if="showCreate" @close="showCreate = false" />
     <GenerationCreateModal v-if="regenerate" :preset="regenerate" @close="regenerate = null" />
@@ -159,11 +207,27 @@ function promptText(g: GenerationSummary): string {
   border-radius: 6px;
 }
 .cc-prompt {
-  display: inline-block;
-  max-width: 280px;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  vertical-align: bottom;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-width: 100%;
+  line-height: 1.5;
+}
+.cc-prompt.is-expanded {
+  display: block;
+  overflow: visible;
+  -webkit-line-clamp: unset;
+}
+.cc-prompt-toggle {
+  padding: 0;
+  margin-top: 2px;
+}
+.cc-pagination {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 1rem;
 }
 </style>
