@@ -24,6 +24,26 @@ def _utcnow() -> str:
 
 _CONTROL_TOKENS = {"fixed", "randomize", "increment", "decrement"}
 
+# 模型加载器字段黑名单: 这些是 ComfyUI 底层加载配置,生成时不应让用户填写。
+# 按 (节点类型, 输入名) 精确匹配,避免误伤内容字段。
+# 排除: 模型文件选择(clip_name/unet_name/vae_name/lora_name)与加载配置(type/device/weight_dtype)。
+# 保留: strength_model 等"强度/数值"可调参数。
+_LOADER_INPUTS: dict[str, set[str]] = {
+    "CLIPLoader": {"clip_name", "type", "device"},
+    "DualCLIPLoader": {"clip_name1", "clip_name2", "type", "device"},
+    "TripleCLIPLoader": {"clip_name1", "clip_name2", "clip_name3", "type", "device"},
+    "UNETLoader": {"unet_name", "weight_dtype"},
+    "DiffusionLoader": {"model_name", "weight_dtype"},
+    "VAELoader": {"vae_name"},
+    "CheckpointLoaderSimple": {"ckpt_name"},
+    "LoraLoader": {"model", "clip", "lora_name"},
+    "LoraLoaderModelOnly": {"model", "lora_name"},
+}
+
+
+def _is_loader_field(node_type: str, input_name: str) -> bool:
+    return input_name in _LOADER_INPUTS.get(node_type, set())
+
 
 def _object_info_schema(object_info: dict | None, node_type: str, input_name: str) -> dict | None:
     """从 ComfyUI /object_info 提取单个 input 的 schema 元数据(无则 None)。
@@ -155,6 +175,8 @@ def discover_fields(body_json: dict, object_info: dict | None = None) -> list[di
         widget_names = [i["name"] for i in node.get("inputs", []) if i.get("widget")]
         widget_values = node.get("widgets_values") or []
         for name, value in _align_widgets(widget_names, widget_values, object_info, node_type):
+            if _is_loader_field(node_type, name):
+                continue
             if not isinstance(value, (str, int, float, bool)) and value is not None:
                 continue
             label = f"[{node_type}] {name}"

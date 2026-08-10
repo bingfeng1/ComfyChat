@@ -363,3 +363,38 @@ def test_discover_fields_falls_back_without_object_info():
     sampler = next(f for f in fields if f["key"] == "sampler_name")
     assert sampler["type"] == "text"
     assert "options" not in sampler
+
+LOADER_BODY = {
+    "nodes": [
+        {
+            "id": 4,
+            "type": "CLIPLoader",
+            "inputs": [
+                {"name": "clip_name", "localized_name": "CLIP名称", "widget": {"name": "clip_name"}},
+                {"name": "type", "localized_name": "类型", "widget": {"name": "type"}},
+                {"name": "device", "localized_name": "设备", "widget": {"name": "device"}},
+            ],
+            "widgets_values": ["qwen_3_4b.safetensors", "lumina2", "default"],
+        },
+        {
+            "id": 6,
+            "type": "LoraLoaderModelOnly",
+            "inputs": [
+                {"name": "model", "localized_name": "模型", "link": 1},
+                {"name": "lora_name", "localized_name": "LoRA名称", "widget": {"name": "lora_name"}},
+                {"name": "strength_model", "localized_name": "模型强度", "widget": {"name": "strength_model"}},
+            ],
+            "widgets_values": ["mumu_20.safetensors", 0],
+        },
+    ]
+}
+
+
+def test_discover_fields_excludes_loader_inputs():
+    fields = discover_fields(LOADER_BODY)
+    keys = {f["key"] for f in fields}
+    assert "clip_name" not in keys
+    assert "type" not in keys
+    assert "device" not in keys
+    assert "lora_name" not in keys
+    assert "strength_model" in keys
