@@ -80,7 +80,7 @@ export interface GenerationList {
 export interface GenerationField {
   key: string;
   label: string;
-  type: "text" | "seed";
+  type: "text" | "seed" | "number";
   node_id: string;
   input_name: string;
   default: string | number | boolean | null;

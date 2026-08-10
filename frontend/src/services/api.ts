@@ -85,6 +85,10 @@ export const api = {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         }),
+      discover: (id: string) =>
+        get<GenerationConfigPayload & { api_template: Record<string, unknown> }>(
+          `/workflows/${id}/generation-config/discover`
+        ),
     },
   },
   generations: {

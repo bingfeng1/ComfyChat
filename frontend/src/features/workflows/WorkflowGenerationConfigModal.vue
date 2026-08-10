@@ -7,50 +7,45 @@ import type { GenerationField } from "@/types/api";
 const props = defineProps<{ workflowId: string; title: string }>();
 const emit = defineEmits<{ close: []; saved: [] }>();
 
-const apiTemplate = ref("{}");
 const fields = ref<GenerationField[]>([]);
+const apiTemplate = ref<Record<string, unknown>>({});
+const removed = ref<Set<string>>(new Set());
+const loading = ref(true);
 const saving = ref(false);
 const error = ref<string | null>(null);
 
 onMounted(async () => {
+  removed.value = new Set();
   try {
-    const cfg = await api.workflows.generationConfig.get(props.workflowId);
-    if (cfg === null) {
-      apiTemplate.value = "{}";
-      fields.value = [];
+    const existing = await api.workflows.generationConfig.get(props.workflowId);
+    if (existing) {
+      fields.value = existing.fields;
+      apiTemplate.value = existing.api_template;
     } else {
-      apiTemplate.value = JSON.stringify(cfg.api_template, null, 2);
-      fields.value = cfg.fields;
+      const d = await api.workflows.generationConfig.discover(props.workflowId);
+      fields.value = d.fields;
+      apiTemplate.value = d.api_template;
     }
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err);
+  } finally {
+    loading.value = false;
   }
 });
 
-function addField() {
-  fields.value.push({
-    key: "",
-    label: "",
-    type: "text",
-    node_id: "",
-    input_name: "",
-    default: "",
-    required: true,
-  });
-}
-
-function removeField(i: number) {
-  fields.value.splice(i, 1);
+function toggleField(key: string, checked: boolean) {
+  if (checked) removed.value.delete(key);
+  else removed.value.add(key);
 }
 
 async function save() {
   saving.value = true;
   error.value = null;
   try {
-    const parsed = JSON.parse(apiTemplate.value);
+    const visible = fields.value.filter((f) => !removed.value.has(f.key));
     await api.workflows.generationConfig.save(props.workflowId, {
-      api_template: parsed,
-      fields: fields.value,
+      api_template: apiTemplate.value,
+      fields: visible,
     });
     emit("saved");
     emit("close");
@@ -64,31 +59,38 @@ async function save() {
 
 <template>
   <Modal :title="`生成配置 · ${props.title}`" @close="emit('close')">
-    <div class="cc-form">
-      <el-form-item label="API 模板 JSON">
-        <el-input
-          v-model="apiTemplate"
-          type="textarea"
-          :rows="8"
-          class="cc-code"
-        />
-      </el-form-item>
+    <div v-if="loading" class="cc-loading">加载中…</div>
 
-      <h4 class="cc-section-title">参数字段</h4>
-      <div v-for="(f, i) in fields" :key="i" class="cc-field-row">
-        <el-input v-model="f.key" placeholder="key" size="small" />
-        <el-input v-model="f.label" placeholder="label" size="small" />
-        <el-select v-model="f.type" size="small" style="width: 110px">
-          <el-option value="text" label="text" />
-          <el-option value="seed" label="seed" />
-        </el-select>
-        <el-input v-model="f.node_id" placeholder="node_id" size="small" />
-        <el-input v-model="f.input_name" placeholder="input_name" size="small" />
-        <el-input v-model="f.default" placeholder="default" size="small" />
-        <el-checkbox v-model="f.required">必填</el-checkbox>
-        <el-button link type="danger" @click="removeField(i)">×</el-button>
+    <div v-else class="cc-form">
+      <div class="cc-desc">
+        选择要让「生成」页面显示的参数。取消勾选 = 生成时不显示。
       </div>
-      <el-button @click="addField">+ 添加字段</el-button>
+
+      <div v-if="fields.length === 0 && !error" class="cc-empty">
+        未发现可填参数。请确认工作流已保存为 ComfyUI 格式。
+      </div>
+
+      <div
+        v-for="f in fields"
+        :key="f.key"
+        class="cc-field-row"
+      >
+        <el-checkbox
+          :model-value="!removed.has(f.key)"
+          @update:model-value="(v: boolean) => toggleField(f.key, v)"
+        />
+        <span class="cc-label">{{ f.label }}</span>
+        <span class="cc-key">{{ f.key }}</span>
+        <el-input
+          v-model="f.label"
+          size="small"
+          class="cc-label-edit"
+          placeholder="标签"
+        />
+        <el-checkbox v-model="f.required" class="cc-required" size="small">
+          必填
+        </el-checkbox>
+      </div>
 
       <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
     </div>
@@ -103,26 +105,39 @@ async function save() {
 </template>
 
 <style lang="scss" scoped>
+.cc-loading {
+  padding: 1rem;
+  color: #64748b;
+}
 .cc-form {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 0.5rem;
 }
-.cc-section-title {
-  margin: 0.25rem 0 0;
-  font-size: 0.9rem;
+.cc-desc {
+  font-size: 0.85rem;
+  color: #64748b;
+  margin-bottom: 0.5rem;
+}
+.cc-empty {
+  color: #94a3b8;
+  font-size: 0.85rem;
+  padding: 0.5rem 0;
 }
 .cc-field-row {
   display: flex;
-  gap: 0.4rem;
   align-items: center;
-  flex-wrap: wrap;
+  gap: 0.5rem;
 }
-.cc-code :deep(textarea) {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+.cc-label {
+  min-width: 80px;
+  font-weight: 500;
+}
+.cc-key {
+  color: #94a3b8;
   font-size: 0.8rem;
 }
-:deep(.cc-field-row .el-input) {
-  width: 130px;
+.cc-label-edit {
+  width: 160px;
 }
 </style>
