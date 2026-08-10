@@ -87,6 +87,7 @@ function selectWorkflow(id: string) {
       if (typeof f.default === "string" || typeof f.default === "number") {
         values.value[f.key] = f.default;
       }
+      randomFlags.value[`${f.key}_random`] = false;
     }
   }
 }
