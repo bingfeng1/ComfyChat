@@ -1,5 +1,12 @@
 from __future__ import annotations
 
+import json
+import struct
+from pathlib import Path
+from typing import Optional
+
+from app.repositories.lora import LoraRepository
+
 BASE_LOADERS: set[str] = {
     "CheckpointLoaderSimple", "UNETLoader", "DiffusionLoader",
     "CLIPLoader", "DualCLIPLoader", "TripleCLIPLoader", "VAELoader",
@@ -142,3 +149,83 @@ _FAMILY_MARKERS: dict[str, list[str]] = {
     "MiniMax-H3": ["minimax-h3", "minimax_h3", "minimax"],
     "Z-Image": ["z-image", "z_image", "zimage", "tongyi-mai/z-image"],
 }
+
+
+class LoraService:
+    def __init__(self, repo: LoraRepository, workflow_repo, comfyui, settings) -> None:
+        self.repo = repo
+        self.workflow_repo = workflow_repo
+        self.comfyui = comfyui
+        self.settings = settings
+
+    def list_installed(self) -> list[str]:
+        """从 ComfyUI object_info 拉全部已安装 LoRA 文件名(去重)。"""
+        names: set[str] = set()
+        try:
+            info = self.comfyui.get_object_info(["LoraLoader", "LoraLoaderModelOnly"])
+        except Exception:
+            return sorted(names)
+        for node_type in ("LoraLoader", "LoraLoaderModelOnly"):
+            node = (info or {}).get(node_type) or {}
+            entry = (((node.get("input") or {}).get("required") or {}).get("lora_name") or [])
+            if entry and isinstance(entry[0], list):
+                names.update(str(x) for x in entry[0])
+        return sorted(names)
+
+    def read_metadata(self, path: Path) -> Optional[dict]:
+        """读 safetensors 头 JSON(8 字节长度前缀)。失败返回 None。"""
+        try:
+            with open(path, "rb") as f:
+                size_bytes = f.read(8)
+                if len(size_bytes) != 8:
+                    return None
+                (length,) = struct.unpack("<Q", size_bytes)
+                if length > 8 * 1024 * 1024:
+                    return None
+                header = json.loads(f.read(length))
+            return header if isinstance(header, dict) else None
+        except Exception:
+            return None
+
+    def _metadata_for(self, name: str) -> dict:
+        """按文件名在 loras 目录里找文件并读 header;找不到返回 {}。"""
+        lora_dir = self.settings.comfyui_loras_dir
+        if not lora_dir:
+            return {}
+        root = Path(lora_dir).resolve()
+        candidate = (root / name).resolve()
+        if candidate.parent != root:
+            return {}
+        header = self.read_metadata(candidate)
+        return header if header is not None else {}
+
+    def sync(self) -> dict:
+        installed = self.list_installed()
+        known: set[str] = set()
+        collected: dict[str, set[str]] = {}
+        if self.workflow_repo is not None:
+            for wf in self.workflow_repo.list():
+                try:
+                    body = json.loads(wf.body)
+                except Exception:
+                    continue
+                for lora, model in lora_model_pairs_from_body(body):
+                    collected.setdefault(lora, set()).add(model)
+        for name in installed:
+            known.add(name)
+            header = self._metadata_for(name)
+            meta = header.get("__metadata__") or {}
+            base_family = detect_base_family(header)
+            source_url = meta.get("url")
+            trigger = meta.get("repoId")
+            self.repo.upsert_lora(
+                name,
+                base_family=base_family,
+                source_url=source_url,
+                trigger_words=trigger,
+            )
+            pairs = collected.get(name)
+            if pairs:
+                self.repo.replace_links(name, sorted(pairs), "workflow")
+        self.repo.clear_stale(known)
+        return {"total": len(installed)}
