@@ -76,13 +76,13 @@ function promptText(g: GenerationSummary): string {
     </div>
 
     <el-table :data="items" v-loading="loading" stripe style="width: 100%">
-      <el-table-column label="图" width="72">
+      <el-table-column label="图" width="100">
         <template #default="{ row }">
           <el-image
             v-if="thumbUrl(row)"
             :src="thumbUrl(row)!"
             fit="cover"
-            style="width: 40px; height: 40px; border-radius: 4px"
+            style="width: 72px; height: 72px; border-radius: 6px"
             :preview-src-list="[thumbUrl(row)!]"
             preview-teleported
           />
@@ -153,10 +153,10 @@ function promptText(g: GenerationSummary): string {
 }
 .cc-thumb-placeholder {
   display: inline-block;
-  width: 40px;
-  height: 40px;
+  width: 72px;
+  height: 72px;
   background: #e2e8f0;
-  border-radius: 4px;
+  border-radius: 6px;
 }
 .cc-prompt {
   display: inline-block;
