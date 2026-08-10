@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import Modal from "@/components/Modal.vue";
 import { api } from "@/services/api";
 import type { GenerationConfigSummary, GenerationField, GenerationSummary } from "@/types/api";
+import type { LoraSummary } from "@/types/api";
 
 const props = defineProps<{
   preset?: GenerationSummary | null;
@@ -13,6 +14,8 @@ const emit = defineEmits<{ close: []; generated: [] }>();
 const loading = ref(true);
 const fetchError = ref<string | null>(null);
 const configs = ref<GenerationConfigSummary[]>([]);
+const loras = ref<LoraSummary[]>([]);
+const showAllLoras = ref(false);
 const workflowId = ref("");
 const values = ref<Record<string, string | number>>({});
 const randomFlags = ref<Record<string, boolean>>({});
@@ -148,6 +151,11 @@ const workflowHint = computed(() => {
 
 onMounted(async () => {
   try {
+    try {
+      loras.value = (await api.loras.list()).items;
+    } catch {
+      /* LoRA 列表不可用时不阻塞生成流程 */
+    }
     configs.value = (await api.workflows.generationConfigs()).items;
     if (configs.value.length > 0) {
       if (
@@ -188,6 +196,21 @@ function selectWorkflow(id: string) {
       randomFlags.value[`${f.key}_random`] = f.type === "seed";
     }
   }
+}
+
+function isLoraField(f: GenerationField): boolean {
+  return f.key === "lora_name";
+}
+
+function loraOptions(f: GenerationField): string[] {
+  if (!isLoraField(f)) return f.options ?? [];
+  const all = f.options ?? [];
+  const mainModel = currentConfig.value?.main_model;
+  if (!mainModel || showAllLoras.value) return all;
+  const filtered = loras.value
+    .filter((l) => l.models.includes(mainModel))
+    .map((l) => l.name);
+  return filtered.length > 0 ? filtered : all;
 }
 
 function onWorkflowChange(id: string | number) {
@@ -398,6 +421,12 @@ function paramDisplay(f: GenerationField): string {
             controls-position="right"
             style="width: 100%"
           />
+          <div v-if="isLoraField(f) && currentConfig?.main_model" class="cc-lora-toggle">
+            <el-checkbox
+              :model-value="showAllLoras"
+              @update:model-value="(v: boolean) => showAllLoras = v"
+            >显示全部 LoRA</el-checkbox>
+          </div>
           <el-select
             v-else-if="f.type === 'select'"
             :model-value="values[f.key]"
@@ -405,7 +434,7 @@ function paramDisplay(f: GenerationField): string {
             style="width: 100%"
           >
             <el-option
-              v-for="opt in f.options ?? []"
+              v-for="opt in loraOptions(f)"
               :key="opt"
               :value="opt"
               :label="opt"
@@ -548,5 +577,8 @@ function paramDisplay(f: GenerationField): string {
 }
 :deep(.cc-params-form .el-select) {
   width: 100%;
+}
+.cc-lora-toggle {
+  margin-bottom: 0.25rem;
 }
 </style>
