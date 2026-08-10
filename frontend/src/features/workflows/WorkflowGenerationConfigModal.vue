@@ -34,15 +34,18 @@ function initRemoved(fields: GenerationField[]): Set<string> {
 onMounted(async () => {
   removed.value = new Set();
   try {
+    const d = await api.workflows.generationConfig.discover(props.workflowId);
+    fields.value = d.fields;
+    apiTemplate.value = d.api_template;
     const existing = await api.workflows.generationConfig.get(props.workflowId);
     if (existing && existing.fields.length > 0) {
-      fields.value = existing.fields;
-      apiTemplate.value = existing.api_template;
-      removed.value = initRemoved(existing.fields);
+      // 已有配置: 以已保存的字段为准决定勾选态,其余候选字段未勾选
+      const savedKeys = new Set(existing.fields.map((f) => f.key));
+      removed.value = new Set(
+        d.fields.filter((f) => !savedKeys.has(f.key)).map((f) => f.key),
+      );
     } else {
-      const d = await api.workflows.generationConfig.discover(props.workflowId);
-      fields.value = d.fields;
-      apiTemplate.value = d.api_template;
+      // 无配置: 默认勾选种子/宽高/正负提示词
       removed.value = initRemoved(d.fields);
     }
   } catch (err) {
