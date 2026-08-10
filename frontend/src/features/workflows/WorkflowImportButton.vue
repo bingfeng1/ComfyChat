@@ -26,9 +26,9 @@ function onInput(e: Event) {
 
 <template>
   <div>
-    <button class="btn primary" :disabled="importing" @click="input?.click()">
+    <el-button type="primary" :loading="importing" :disabled="importing" @click="input?.click()">
       {{ importing ? "上传中…" : "导入" }}
-    </button>
+    </el-button>
     <input
       ref="input"
       type="file"
@@ -46,18 +46,3 @@ function onInput(e: Event) {
     />
   </div>
 </template>
-
-<style scoped>
-.btn {
-  padding: 0.4rem 0.9rem;
-  border: 1px solid #cbd5e1;
-  border-radius: 6px;
-  background: #fff;
-  cursor: pointer;
-}
-.btn.primary {
-  background: #0ea5e9;
-  border-color: #0ea5e9;
-  color: #fff;
-}
-</style>

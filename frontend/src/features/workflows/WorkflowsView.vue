@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { ref } from "vue";
+import { Search } from "@element-plus/icons-vue";
 import Modal from "@/components/Modal.vue";
 import WorkflowImportButton from "./WorkflowImportButton.vue";
 import WorkflowSyncButton from "./WorkflowSyncButton.vue";
 import WorkflowDetailModal from "./WorkflowDetailModal.vue";
 import WorkflowHistoryModal from "./WorkflowHistoryModal.vue";
 import WorkflowGenerationConfigModal from "./WorkflowGenerationConfigModal.vue";
-import WorkflowRow from "./WorkflowRow.vue";
 import { useWorkflows } from "./useWorkflows";
 import type { WorkflowSummary } from "@/types/api";
 
@@ -31,7 +31,6 @@ const detail = ref<WorkflowSummary | null>(null);
 const historyOf = ref<WorkflowSummary | null>(null);
 const configOf = ref<WorkflowSummary | null>(null);
 const confirmDelete = ref<WorkflowSummary | null>(null);
-
 const pendingFile = ref<File | null>(null);
 
 async function handleChosen(file: File) {
@@ -43,7 +42,10 @@ async function handleChosen(file: File) {
   }
 }
 
-async function resolveConflict(action: "rename" | "overwrite" | "cancel", name?: string) {
+async function resolveConflict(
+  action: "rename" | "overwrite" | "cancel",
+  name?: string,
+) {
   if (action === "cancel") {
     pendingFile.value = null;
     clearConflict();
@@ -84,13 +86,28 @@ async function onExport(id: string) {
   a.click();
   URL.revokeObjectURL(url);
 }
+
+function fmtSize(bytes: number) {
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
+}
+
+function fmtTime(iso: string) {
+  return new Date(iso).toLocaleString();
+}
+
+const sourceLabel: Record<string, string> = {
+  browse: "ComfyUI",
+  import: "导入",
+};
 </script>
 
 <template>
-  <div class="page">
-    <div class="toolbar">
+  <div>
+    <div class="cc-toolbar">
       <h2>工作流</h2>
-      <div class="spacer" />
+      <div class="cc-spacer" />
       <WorkflowImportButton
         :importing="importing"
         :conflict="conflict"
@@ -100,36 +117,75 @@ async function onExport(id: string) {
       <WorkflowSyncButton :syncing="syncing" @sync="doSync" />
     </div>
 
-    <div v-if="syncMsg" class="sync-msg">{{ syncMsg }}</div>
-    <div v-if="error" class="err">{{ error }}</div>
+    <el-alert
+      v-if="syncMsg"
+      :title="syncMsg"
+      type="success"
+      :closable="false"
+      show-icon
+    />
+    <el-alert
+      v-if="error"
+      :title="error"
+      type="error"
+      :closable="false"
+      show-icon
+    />
 
-    <div class="filters">
-      <input v-model="search" placeholder="搜索名称…" class="search" @input="doSearch" />
-      <select v-model="sourceFilter" class="source" @change="doSearch">
-        <option value="">全部来源</option>
-        <option value="browse">ComfyUI</option>
-        <option value="import">导入</option>
-      </select>
+    <div class="cc-filters">
+      <el-input
+        v-model="search"
+        placeholder="搜索名称…"
+        :prefix-icon="Search"
+        clearable
+        @input="doSearch"
+      />
+      <el-select v-model="sourceFilter" placeholder="全部来源" clearable @change="doSearch">
+        <el-option value="" label="全部来源" />
+        <el-option value="browse" label="ComfyUI" />
+        <el-option value="import" label="导入" />
+      </el-select>
     </div>
 
-    <table v-if="loading" class="table"><tbody><tr><td>加载中…</td></tr></tbody></table>
-    <table v-else class="table">
-      <thead>
-        <tr><th>名称</th><th>来源</th><th>大小</th><th>更新于</th><th>操作</th></tr>
-      </thead>
-      <tbody>
-        <WorkflowRow
-          v-for="wf in items"
-          :key="wf.id"
-          :workflow="wf"
-          @view="detail = wf"
-          @export="onExport(wf.id)"
-          @delete="confirmDelete = wf"
-          @history="historyOf = wf"
-          @config="configOf = wf"
-        />
-      </tbody>
-    </table>
+    <el-table :data="items" v-loading="loading" stripe style="width: 100%">
+      <el-table-column label="名称" min-width="240">
+        <template #default="{ row }">
+          <span class="cc-name">{{ row.name }}.json</span>
+        </template>
+      </el-table-column>
+      <el-table-column label="来源" width="120">
+        <template #default="{ row }">
+          {{ sourceLabel[row.source] ?? row.source }}
+        </template>
+      </el-table-column>
+      <el-table-column label="大小" width="120">
+        <template #default="{ row }">{{ fmtSize(row.size_bytes) }}</template>
+      </el-table-column>
+      <el-table-column label="更新于" width="200">
+        <template #default="{ row }">{{ fmtTime(row.updated_at) }}</template>
+      </el-table-column>
+      <el-table-column label="操作" width="220" align="right">
+        <template #default="{ row }">
+          <el-button
+            v-if="row.source === 'browse' && row.has_history"
+            link
+            @click="historyOf = row"
+          >历史</el-button>
+          <el-button
+            v-if="row.source === 'browse'"
+            link
+            type="primary"
+            @click="configOf = row"
+          >配置</el-button>
+          <el-button link type="primary" @click="detail = row">查看</el-button>
+          <el-button link type="primary" @click="onExport(row.id)">下载</el-button>
+          <el-button link type="danger" @click="confirmDelete = row">删除</el-button>
+        </template>
+      </el-table-column>
+      <template #empty>
+        <el-empty description="暂无工作流" />
+      </template>
+    </el-table>
 
     <WorkflowDetailModal
       v-if="detail"
@@ -137,14 +193,12 @@ async function onExport(id: string) {
       :title="detail.name"
       @close="detail = null"
     />
-
     <WorkflowHistoryModal
       v-if="historyOf"
       :workflow-id="historyOf.id"
       :title="historyOf.name"
       @close="historyOf = null"
     />
-
     <WorkflowGenerationConfigModal
       v-if="configOf"
       :workflow-id="configOf.id"
@@ -155,53 +209,34 @@ async function onExport(id: string) {
 
     <Modal v-if="confirmDelete" title="删除工作流" @close="confirmDelete = null">
       <p>确定删除「{{ confirmDelete.name }}」？</p>
-      <div class="actions">
-        <button class="btn" @click="confirmDelete = null">取消</button>
-        <button class="btn danger" @click="removeWorkflow(confirmDelete.id); confirmDelete = null">删除</button>
-      </div>
+      <template #footer>
+        <el-button @click="confirmDelete = null">取消</el-button>
+        <el-button type="danger" @click="removeWorkflow(confirmDelete.id); confirmDelete = null">删除</el-button>
+      </template>
     </Modal>
   </div>
 </template>
 
-<style scoped>
-.page { max-width: 1100px; }
-.toolbar {
+<style lang="scss" scoped>
+.cc-toolbar {
   display: flex;
   align-items: center;
   gap: 0.75rem;
   margin-bottom: 0.75rem;
 }
-.spacer { flex: 1; }
-.sync-msg {
-  padding: 0.5rem 0.75rem;
-  background: #ecfdf5;
-  border: 1px solid #a7f3d0;
-  border-radius: 6px;
-  margin-bottom: 0.75rem;
-  color: #065f46;
+.cc-spacer {
+  flex: 1;
 }
-.err { color: #ef4444; margin: 0.5rem 0; }
-.filters {
+.cc-filters {
   display: flex;
   gap: 0.75rem;
   margin-bottom: 0.75rem;
+  align-items: center;
 }
-.search { flex: 1; padding: 0.4rem; border: 1px solid #cbd5e1; border-radius: 6px; }
-.source { padding: 0.4rem; border: 1px solid #cbd5e1; border-radius: 6px; }
-.table { width: 100%; border-collapse: collapse; }
-.table th, .table td {
-  text-align: left;
-  padding: 0.5rem 0.75rem;
-  border-bottom: 1px solid #e2e8f0;
+.cc-name {
+  font-weight: 500;
 }
-.table th { background: #f8fafc; color: #475569; }
-.actions { display: flex; gap: 0.5rem; justify-content: flex-end; }
-.btn {
-  padding: 0.4rem 0.9rem;
-  border: 1px solid #cbd5e1;
-  border-radius: 6px;
-  background: #fff;
-  cursor: pointer;
+:deep(.cc-toolbar .el-button + .el-button) {
+  margin-left: 0;
 }
-.btn.danger { background: #ef4444; border-color: #ef4444; color: #fff; }
 </style>
