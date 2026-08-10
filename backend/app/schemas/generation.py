@@ -11,7 +11,7 @@ from app.models.generation import Generation, WorkflowGenerationConfig
 class GenerationField(BaseModel):
     key: str
     label: str
-    type: str = Field(pattern="^(text|seed)$")
+    type: str = Field(pattern="^(text|seed|number)$")
     node_id: str
     input_name: str
     default: Any = None
@@ -37,6 +37,11 @@ class GenerationConfigOut(BaseModel):
             fields=[GenerationField(**f) for f in json.loads(cfg.fields_json)],
             updated_at=cfg.updated_at,
         )
+
+
+class GenerationDiscoverOut(BaseModel):
+    api_template: dict
+    fields: list[GenerationField]
 
 
 class GenerationConfigSummaryOut(BaseModel):

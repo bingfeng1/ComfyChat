@@ -102,6 +102,9 @@ def apply_parameters(
                 effective[f"{key}_random"] = True
             elif not isinstance(value, int):
                 raise ValueError(f"字段 {field['label']} 必须是整数")
+        elif field["type"] == "number":
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise ValueError(f"字段 {field['label']} 必须是数字")
         elif field["required"] and (value is None or value == ""):
             raise ValueError(f"字段 {field['label']} 为必填")
         effective[key] = value

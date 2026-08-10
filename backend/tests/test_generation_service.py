@@ -268,3 +268,36 @@ def test_discover_fields_skips_link_inputs():
     keys = {f["key"] for f in fields}
     assert "clip" not in keys
     assert "model" not in keys
+
+
+NUMBER_FIELDS = [
+    {"key": "steps", "label": "步数", "type": "number", "node_id": "16", "input_name": "steps", "default": 20, "required": True},
+]
+
+
+def test_apply_parameters_rejects_bad_number_type():
+    with pytest.raises(ValueError):
+        apply_parameters(
+            {"16": {"class_type": "KSampler", "inputs": {"steps": 20}}},
+            NUMBER_FIELDS,
+            {"steps": "abc"},
+        )
+
+
+def test_apply_parameters_rejects_bool_as_number():
+    with pytest.raises(ValueError):
+        apply_parameters(
+            {"16": {"class_type": "KSampler", "inputs": {"steps": 20}}},
+            NUMBER_FIELDS,
+            {"steps": True},
+        )
+
+
+def test_apply_parameters_accepts_number():
+    filled, effective = apply_parameters(
+        {"16": {"class_type": "KSampler", "inputs": {"steps": 20}}},
+        NUMBER_FIELDS,
+        {"steps": 30},
+    )
+    assert filled["16"]["inputs"]["steps"] == 30
+    assert effective["steps"] == 30
