@@ -17,18 +17,18 @@ if (-not (Test-Path -LiteralPath $PidFile)) {
 
 $pids = Get-Content -Path $PidFile -Raw | ConvertFrom-Json
 
-function Stop-Tree($label, $pid) {
-    if (-not $pid) { return }
-    $proc = Get-Process -Id $pid -ErrorAction SilentlyContinue
+function Stop-Tree($label, $TargetPid) {
+    if (-not $TargetPid) { return }
+    $proc = Get-Process -Id $TargetPid -ErrorAction SilentlyContinue
     if (-not $proc) {
-        Write-Host "  [skip] $label PID $pid not running" -ForegroundColor DarkGray
+        Write-Host "  [skip] $label PID $TargetPid not running" -ForegroundColor DarkGray
         return
     }
     try {
-        taskkill /T /F /PID $pid | Out-Null
-        Write-Host "  [ok]   $label PID $pid killed (tree)" -ForegroundColor Green
+        taskkill /T /F /PID $TargetPid | Out-Null
+        Write-Host "  [ok]   $label PID $TargetPid killed (tree)" -ForegroundColor Green
     } catch {
-        Write-Host "  [warn] $label PID $pid (kill failed)" -ForegroundColor Yellow
+        Write-Host "  [warn] $label PID $TargetPid (kill failed)" -ForegroundColor Yellow
     }
 }
 
