@@ -1,1 +1,1 @@
-from . import workflow, generation
+from . import generation, lora, workflow
