@@ -39,7 +39,7 @@ const familyOptions = computed(() => {
 });
 
 const newUnboundLoras = computed(() =>
-  items.value.filter((it) => it.is_new && it.models.length === 0),
+  items.value.filter((it) => !it.deleted_from_comfyui && it.models.length === 0),
 );
 
 const filteredItems = computed(() => {
@@ -83,7 +83,7 @@ onMounted(load);
       @close="guideNotice = false"
     >
       <template #title>
-        检测到 {{ newUnboundLoras.length }} 个新 LoRA 尚未绑定主模型。
+        检测到 {{ newUnboundLoras.length }} 个 LoRA 尚未绑定主模型。
         可让 AI 帮你查询并绑定
         <a :href="BINDING_GUIDE_URL" target="_blank" rel="noopener" class="cc-guide-link">查看绑定指南</a>
       </template>
