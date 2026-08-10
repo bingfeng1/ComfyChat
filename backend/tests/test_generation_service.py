@@ -501,3 +501,39 @@ def test_discover_fields_labels_positive_negative():
     texts = {f["node_id"]: f["label"] for f in fields if f["input_name"] == "text"}
     assert texts["7"] == "正面提示词"
     assert texts["8"] == "负面提示词"
+
+LINKED_BODY = {
+    "nodes": [
+        {
+            "id": 16,
+            "type": "KSampler",
+            "inputs": [
+                {"name": "model", "localized_name": "模型", "link": 10},
+                {"name": "positive", "localized_name": "正面", "link": 11},
+                {"name": "seed", "localized_name": "种子", "widget": {"name": "seed"}},
+            ],
+            "widgets_values": [42],
+        },
+        {
+            "id": 19,
+            "type": "PreviewImage",
+            "inputs": [
+                {"name": "images", "localized_name": "图像", "link": 17},
+            ],
+            "widgets_values": [],
+        },
+    ],
+    "links": [
+        [10, 15, 0, 16, 0, "MODEL"],
+        [11, 7, 0, 16, 1, "CONDITIONING"],
+        [17, 17, 0, 19, 0, "IMAGE"],
+    ],
+}
+
+
+def test_workflow_to_api_template_resolves_links():
+    api = workflow_to_api_template(LINKED_BODY)
+    assert api["16"]["inputs"]["model"] == ["15", 0]
+    assert api["16"]["inputs"]["positive"] == ["7", 0]
+    assert api["16"]["inputs"]["seed"] == 42
+    assert api["19"]["inputs"]["images"] == ["17", 0]

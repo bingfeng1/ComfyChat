@@ -114,16 +114,36 @@ def _align_widgets(
 
 
 def workflow_to_api_template(body_json: dict, object_info: dict | None = None) -> dict:
-    """把 ComfyUI UI 格式工作流 body 转成 API 格式 dict(/prompt 用)。"""
+    """把 ComfyUI UI 格式工作流 body 转成 API 格式 dict(/prompt 用)。
+
+    - widget 输入: 从 widgets_values 取值
+    - 连线输入: 解析 links 数组为 [from_node_id, from_slot] 引用
+    links 结构: [id, from_node, from_slot, to_node, to_slot, type]
+    """
+    links = body_json.get("links", [])
+    link_map: dict[tuple[str, int], tuple[str, int]] = {}
+    for link in links:
+        from_node, from_slot, to_node, to_slot = link[1], link[2], link[3], link[4]
+        link_map[(str(to_node), to_slot)] = (str(from_node), from_slot)
+
     result: dict = {}
     for node in body_json.get("nodes", []):
         node_id = str(node["id"])
+        node_type = node.get("type", "")
         inputs: dict = {}
+        # 连线输入
+        for idx, inp in enumerate(node.get("inputs", [])):
+            if inp.get("link") is None:
+                continue
+            src = link_map.get((node_id, idx))
+            if src:
+                inputs[inp["name"]] = [src[0], src[1]]
+        # widget 输入
         widget_names = [i["name"] for i in node.get("inputs", []) if i.get("widget")]
         widget_values = node.get("widgets_values") or []
-        for name, value in _align_widgets(widget_names, widget_values, object_info, node.get("type", "")):
+        for name, value in _align_widgets(widget_names, widget_values, object_info, node_type):
             inputs[name] = value
-        result[node_id] = {"class_type": node["type"], "inputs": inputs}
+        result[node_id] = {"class_type": node_type, "inputs": inputs}
     return result
 
 
