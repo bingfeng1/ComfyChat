@@ -209,6 +209,8 @@ class LoraService:
             return {"total": 0, "error": "ComfyUI 不可达"}
         known: set[str] = set()
         collected: dict[str, set[str]] = {}
+        pre_existing = self.repo.names()
+        is_new: set[str] = set()
         if self.workflow_repo is not None:
             for wf in self.workflow_repo.list():
                 try:
@@ -230,8 +232,11 @@ class LoraService:
                 source_url=source_url,
                 trigger_words=trigger,
             )
+            self.repo.mark_present(name)
+            if name not in pre_existing:
+                is_new.add(name)
             pairs = collected.get(name)
             if pairs:
                 self.repo.replace_links(name, sorted(pairs), "workflow")
-        self.repo.clear_stale(known)
-        return {"total": len(installed)}
+        self.repo.mark_missing(known)
+        return {"total": len(installed), "is_new": sorted(is_new)}

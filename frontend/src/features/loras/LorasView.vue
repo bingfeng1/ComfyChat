@@ -10,6 +10,10 @@ const error = ref<string | null>(null);
 const search = ref("");
 const familyFilter = ref("");
 const boundFilter = ref("");
+const deletedFilter = ref("");
+
+const BINDING_GUIDE_URL = "/docs/lora-ai-binding-guide.md";
+const guideNotice = ref(true);
 
 async function load() {
   loading.value = true;
@@ -34,6 +38,10 @@ const familyOptions = computed(() => {
   return [...set].sort();
 });
 
+const newUnboundLoras = computed(() =>
+  items.value.filter((it) => it.is_new && it.models.length === 0),
+);
+
 const filteredItems = computed(() => {
   const q = search.value.trim().toLowerCase();
   return items.value.filter((it) => {
@@ -41,6 +49,8 @@ const filteredItems = computed(() => {
     if (familyFilter.value && (it.base_family || "未知") !== familyFilter.value) return false;
     if (boundFilter.value === "bound" && it.models.length === 0) return false;
     if (boundFilter.value === "unbound" && it.models.length > 0) return false;
+    if (deletedFilter.value === "deleted" && !it.deleted_from_comfyui) return false;
+    if (deletedFilter.value === "active" && it.deleted_from_comfyui) return false;
     return true;
   });
 });
@@ -64,6 +74,21 @@ onMounted(load);
       show-icon
     />
 
+    <el-alert
+      v-if="newUnboundLoras.length > 0 && guideNotice"
+      type="info"
+      :closable="true"
+      show-icon
+      class="cc-guide-alert"
+      @close="guideNotice = false"
+    >
+      <template #title>
+        检测到 {{ newUnboundLoras.length }} 个新 LoRA 尚未绑定主模型。
+        可让 AI 帮你查询并绑定
+        <a :href="BINDING_GUIDE_URL" target="_blank" rel="noopener" class="cc-guide-link">查看绑定指南</a>
+      </template>
+    </el-alert>
+
     <div class="cc-filters">
       <el-input
         v-model="search"
@@ -79,12 +104,24 @@ onMounted(load);
         <el-option value="bound" label="有绑定" />
         <el-option value="unbound" label="无绑定" />
       </el-select>
+      <el-select v-model="deletedFilter" placeholder="全部状态" clearable style="width: 130px">
+        <el-option value="active" label="正常" />
+        <el-option value="deleted" label="已删除" />
+      </el-select>
     </div>
 
     <el-table :data="filteredItems" v-loading="loading" stripe style="width: 100%">
       <el-table-column label="文件名" min-width="280">
         <template #default="{ row }">
-          <span class="cc-name">{{ row.name }}</span>
+          <span :class="['cc-name', { 'cc-deleted-name': row.deleted_from_comfyui }]">
+            {{ row.name }}
+          </span>
+          <el-tag
+            v-if="row.deleted_from_comfyui"
+            size="small"
+            type="info"
+            class="cc-deleted-tag"
+          >已删除</el-tag>
         </template>
       </el-table-column>
       <el-table-column label="主模型" min-width="260">
@@ -151,5 +188,23 @@ onMounted(load);
 }
 .cc-url:hover {
   text-decoration: underline;
+}
+.cc-guide-alert {
+  margin-bottom: 0.75rem;
+}
+.cc-guide-link {
+  color: #0ea5e9;
+  font-weight: 500;
+  text-decoration: none;
+}
+.cc-guide-link:hover {
+  text-decoration: underline;
+}
+.cc-deleted-name {
+  color: #94a3b8;
+  text-decoration: line-through;
+}
+.cc-deleted-tag {
+  margin-left: 6px;
 }
 </style>

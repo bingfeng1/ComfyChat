@@ -9,6 +9,8 @@ class LoraOut(BaseModel):
     source_url: str | None = None
     trigger_words: str | None = None
     models: list[str] = Field(default_factory=list)
+    deleted_from_comfyui: bool = False
+    is_new: bool = False
 
 
 class LoraListOut(BaseModel):

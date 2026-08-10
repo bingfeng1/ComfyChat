@@ -135,6 +135,10 @@ def test_list_installed_returns_none_on_error(session):
     assert service.list_installed() is None
 
 
+def _by_name(items):
+    return {lora.name: models for lora, models in items}
+
+
 def test_sync_preserves_cache_when_comfy_unreachable(session):
     service = _mk_service(session, [], comfy=RaisingComfy())
     service.repo.upsert_lora("keep.safetensors")
@@ -143,11 +147,11 @@ def test_sync_preserves_cache_when_comfy_unreachable(session):
 
     assert result["error"] == "ComfyUI 不可达"
     assert result["total"] == 0
-    items = dict(service.repo.list_all())
+    items = _by_name(service.repo.list_all())
     assert items == {"keep.safetensors": []}
 
 
-def test_sync_populates_and_clears_stale(session):
+def test_sync_populates_marks_stale_deleted(session):
     from app.repositories.workflow import WorkflowRepository
     service = _mk_service(session, ["mumu_20.safetensors", "gone.safetensors"])
     # 预先留一条陈旧 lora
@@ -171,9 +175,21 @@ def test_sync_populates_and_clears_stale(session):
 
     result = service.sync()
     assert result["total"] == 2
-    items = dict(service.repo.list_all())
+    items = _by_name(service.repo.list_all())
     assert items["mumu_20.safetensors"] == ["z_image_turbo_int8_convrot.safetensors"]
-    assert "stale.safetensors" not in items
+    # stale 不再被物理删除,而是标记 deleted
+    assert "stale.safetensors" in items
+    assert session.get(Lora, "stale.safetensors").deleted_from_comfyui is True
+
+
+def test_sync_reports_is_new_for_first_seen(session):
+    from app.repositories.workflow import WorkflowRepository
+    service = _mk_service(session, ["fresh.safetensors", "known.safetensors"])
+    service.repo.upsert_lora("known.safetensors")
+    service.workflow_repo = WorkflowRepository(session)
+
+    result = service.sync()
+    assert result["is_new"] == ["fresh.safetensors"]
 
 
 def test_sync_reads_metadata_when_loras_dir_configured(session, tmp_path):
@@ -193,7 +209,7 @@ def test_sync_reads_metadata_when_loras_dir_configured(session, tmp_path):
         {"comfyui_loras_dir": lora_dir},
     )
     service.sync()
-    items = dict(service.repo.list_all())
+    items = _by_name(service.repo.list_all())
     assert items["minimax_h3_turbo_4step_comfyui.safetensors"] == []
     lora = session.get(Lora, "minimax_h3_turbo_4step_comfyui.safetensors")
     assert lora.base_family == "MiniMax-H3"

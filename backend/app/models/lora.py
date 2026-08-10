@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import ForeignKey, String, UniqueConstraint
+from sqlalchemy import Boolean, ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
@@ -19,6 +19,7 @@ class Lora(Base):
     base_family: Mapped[str | None] = mapped_column(String(64), nullable=True)
     source_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     trigger_words: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    deleted_from_comfyui: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     updated_at: Mapped[str] = mapped_column(String(40), nullable=False, default=_utcnow)
 
 

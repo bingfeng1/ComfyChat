@@ -27,17 +27,19 @@ def _service(
     )
 
 
-def _out(session: Session) -> LoraListOut:
+def _out(session: Session, is_new: set[str] | None = None) -> LoraListOut:
     repo = LoraRepository(session)
+    is_new = is_new or set()
     items = []
-    for name, models in repo.list_all():
-        lora = session.get(Lora, name)
+    for lora, models in repo.list_all():
         items.append(LoraOut(
-            name=name,
-            base_family=lora.base_family if lora else None,
-            source_url=lora.source_url if lora else None,
-            trigger_words=lora.trigger_words if lora else None,
+            name=lora.name,
+            base_family=lora.base_family,
+            source_url=lora.source_url,
+            trigger_words=lora.trigger_words,
             models=models,
+            deleted_from_comfyui=lora.deleted_from_comfyui,
+            is_new=lora.name in is_new and not models,
         ))
     return LoraListOut(items=items)
 
@@ -47,7 +49,7 @@ def list_lora(service: LoraService = Depends(_service)) -> LoraListOut:
     result = service.sync()
     if "error" in result:
         raise HTTPException(status_code=503, detail=result["error"])
-    return _out(service.repo.session)
+    return _out(service.repo.session, set(result.get("is_new", [])))
 
 
 @router.post("/sync", response_model=LoraListOut)
@@ -55,4 +57,4 @@ def sync_lora(service: LoraService = Depends(_service)) -> LoraListOut:
     result = service.sync()
     if "error" in result:
         raise HTTPException(status_code=503, detail=result["error"])
-    return _out(service.repo.session)
+    return _out(service.repo.session, set(result.get("is_new", [])))

@@ -116,6 +116,8 @@ export interface LoraSummary {
   source_url: string | null;
   trigger_words: string | null;
   models: string[];
+  deleted_from_comfyui: boolean;
+  is_new: boolean;
 }
 
 export interface LoraList {

@@ -55,27 +55,46 @@ class LoraRepository:
                 link.source = source
         self.session.commit()
 
-    def list_all(self) -> list[tuple[str, list[str]]]:
+    def list_all(self) -> list[tuple[Lora, list[str]]]:
         rows = self.session.execute(
             select(Lora, LoraModelLink.model_name)
             .outerjoin(LoraModelLink, LoraModelLink.lora_name == Lora.name)
-            .order_by(Lora.name.asc())
+            .order_by(Lora.deleted_from_comfyui.asc(), Lora.name.asc())
         ).all()
-        grouped: dict[str, tuple[str, list[str]]] = {}
+        grouped: dict[str, tuple[Lora, list[str]]] = {}
         for lora, model_name in rows:
             if lora.name not in grouped:
-                grouped[lora.name] = (lora.name, [])
+                grouped[lora.name] = (lora, [])
             if model_name is not None:
                 grouped[lora.name][1].append(model_name)
         return list(grouped.values())
 
-    def clear_stale(self, known_names: set[str]) -> None:
-        stmt = select(Lora.name).where(Lora.name.notin_(known_names))
-        stale = [n for (n,) in self.session.execute(stmt).all()]
-        if not stale:
+    def mark_present(self, name: str) -> None:
+        lora = self.session.get(Lora, name)
+        if lora is None:
             return
-        self.session.execute(
-            sa_delete(LoraModelLink).where(LoraModelLink.lora_name.in_(stale))
-        )
-        self.session.execute(sa_delete(Lora).where(Lora.name.in_(stale)))
+        if lora.deleted_from_comfyui:
+            lora.deleted_from_comfyui = False
+            lora.updated_at = _utcnow()
+            self.session.commit()
+
+    def mark_deleted(self, name: str) -> None:
+        lora = self.session.get(Lora, name)
+        if lora is None:
+            return
+        if not lora.deleted_from_comfyui:
+            lora.deleted_from_comfyui = True
+            lora.updated_at = _utcnow()
+            self.session.commit()
+
+    def mark_missing(self, known_names: set[str]) -> None:
+        stmt = select(Lora).where(Lora.name.notin_(known_names))
+        for lora in self.session.scalars(stmt).all():
+            if not lora.deleted_from_comfyui:
+                lora.deleted_from_comfyui = True
+                lora.updated_at = _utcnow()
         self.session.commit()
+
+    def names(self) -> set[str]:
+        stmt = select(Lora.name)
+        return {n for (n,) in self.session.execute(stmt).all()}
