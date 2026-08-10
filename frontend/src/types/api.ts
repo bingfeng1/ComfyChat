@@ -75,6 +75,9 @@ export interface GenerationSummary {
 
 export interface GenerationList {
   items: GenerationSummary[];
+  total: number;
+  page: number;
+  page_size: number;
 }
 
 export interface GenerationField {

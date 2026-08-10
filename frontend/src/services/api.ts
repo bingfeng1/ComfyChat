@@ -92,9 +92,11 @@ export const api = {
     },
   },
   generations: {
-    list: (params?: { status?: GenerationStatus }) => {
+    list: (params?: { status?: GenerationStatus; page?: number; page_size?: number }) => {
       const sp = new URLSearchParams();
       if (params?.status) sp.set("status", params.status);
+      if (params?.page) sp.set("page", String(params.page));
+      if (params?.page_size) sp.set("page_size", String(params.page_size));
       const qs = sp.toString() ? `?${sp.toString()}` : "";
       return get<GenerationList>(`/generations${qs}`);
     },
