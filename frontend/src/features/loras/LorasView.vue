@@ -1,12 +1,15 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
-import { Refresh } from "@element-plus/icons-vue";
+import { computed, onMounted, ref } from "vue";
+import { Refresh, Search } from "@element-plus/icons-vue";
 import { api } from "@/services/api";
 import type { LoraSummary } from "@/types/api";
 
 const items = ref<LoraSummary[]>([]);
 const loading = ref(false);
 const error = ref<string | null>(null);
+const search = ref("");
+const familyFilter = ref("");
+const boundFilter = ref("");
 
 async function load() {
   loading.value = true;
@@ -24,6 +27,23 @@ async function load() {
 function fmtFamily(f: string | null): string {
   return f || "未知";
 }
+
+const familyOptions = computed(() => {
+  const set = new Set<string>();
+  for (const it of items.value) set.add(it.base_family || "未知");
+  return [...set].sort();
+});
+
+const filteredItems = computed(() => {
+  const q = search.value.trim().toLowerCase();
+  return items.value.filter((it) => {
+    if (q && !it.name.toLowerCase().includes(q)) return false;
+    if (familyFilter.value && (it.base_family || "未知") !== familyFilter.value) return false;
+    if (boundFilter.value === "bound" && it.models.length === 0) return false;
+    if (boundFilter.value === "unbound" && it.models.length > 0) return false;
+    return true;
+  });
+});
 
 onMounted(load);
 </script>
@@ -44,7 +64,24 @@ onMounted(load);
       show-icon
     />
 
-    <el-table :data="items" v-loading="loading" stripe style="width: 100%">
+    <div class="cc-filters">
+      <el-input
+        v-model="search"
+        placeholder="搜索名称…"
+        :prefix-icon="Search"
+        clearable
+        style="width: 240px"
+      />
+      <el-select v-model="familyFilter" placeholder="全部架构族" clearable style="width: 160px">
+        <el-option v-for="opt in familyOptions" :key="opt" :value="opt" :label="opt" />
+      </el-select>
+      <el-select v-model="boundFilter" placeholder="绑定状态" clearable style="width: 140px">
+        <el-option value="bound" label="有绑定" />
+        <el-option value="unbound" label="无绑定" />
+      </el-select>
+    </div>
+
+    <el-table :data="filteredItems" v-loading="loading" stripe style="width: 100%">
       <el-table-column label="文件名" min-width="280">
         <template #default="{ row }">
           <span class="cc-name">{{ row.name }}</span>
@@ -88,6 +125,12 @@ onMounted(load);
   align-items: center;
   gap: 0.75rem;
   margin-bottom: 0.75rem;
+}
+.cc-filters {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+  align-items: center;
 }
 .cc-spacer {
   flex: 1;
