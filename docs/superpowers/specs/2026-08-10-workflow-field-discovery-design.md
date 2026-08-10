@@ -1,43 +1,43 @@
-# Workflow Generation Fields Auto-Discovery
+# 工作流生成字段自动发现
 
-**Date:** 2026-08-10
-**Status:** Design — awaiting review
-**Scope:** Replace the manual "API 模板 JSON + node_id/input_name fields" config experience with an auto-discovery checklist. User opens the workflow's 生成配置 modal, sees every fillable widget of the workflow listed with a clear Chinese label, checks the ones to expose, saves. The generation create page then renders a dynamic form with only the checked fields.
+**日期:** 2026-08-10
+**状态:** 设计 — 待评审
+**范围:** 把「手填 API 模板 JSON + node_id/input_name 字段表」的生成配置体验,改造成「自动发现 + 中文勾选清单」。用户打开工作流的"生成配置"弹窗,看到工作流所有可填写控件(带明确中文标签),勾选想暴露的,保存。生成创建页随后只渲染勾选过的字段,形成动态表单。
 
-## Problem
+## 问题
 
-Today's generation config (`WorkflowGenerationConfigModal.vue`) forces the user to:
-1. Paste a ComfyUI API-format JSON into "API 模板 JSON" (opaque; user must know ComfyUI internals)
-2. Manually build a field table with raw `node_id` / `input_name` strings (opaque; user can't tell which maps to what)
+现在的生成配置(`WorkflowGenerationConfigModal.vue`)逼着用户:
+1. 往 "API 模板 JSON" 里粘贴 ComfyUI 的 API 格式 JSON(不透明;用户必须懂 ComfyUI 内部)
+2. 手动建字段表,填裸 `node_id` / `input_name` 字符串(不透明;用户分不清哪个对应哪个)
 
-The user's real mental model: "I want to pick which inputs of my workflow appear in the generate form — e.g. z-image-turbo needs just 正面提示词 + seed 随机. Everything else I don't fill."
+用户的真实心智模型:"我想挑选工作流里哪些输入出现在生成表单中 — 比如 z-image-turbo 只需 正面提示词 + 种子随机。其他我都不填。"
 
-The `Workflow.body` stored in our DB already contains everything needed to auto-generate this, because ComfyUI's UI-format workflow files ship per-node `inputs[]` entries that include both the technical `name` and a Chinese `localized_name` (e.g. `KSampler.inputs.seed` → localized "种子"). It also carries `widgets_values` (the actual values) in the same order as the widget inputs.
+我们库里的 `Workflow.body` 已经包含自动生成这一切所需的全部信息,因为 ComfyUI 的 UI 格式工作流文件里,每个节点的 `inputs[]` 既带技术名 `name`,也带中文 `localized_name`(如 `KSampler.inputs.seed` 本地化为"种子")。它还按与 widget 输入相同的顺序携带 `widgets_values`(真实值)。
 
-## Verified facts (from inspecting the real z-image-turbo workflow)
+## 已验证的事实(来自真实 z-image-turbo 工作流)
 
-- `Workflow.body` is **UI format** (`{"nodes":[{id, type, inputs, widgets_values, ...}]}`), NOT the API format `{"<id>":{"class_type","inputs"}}` that ComfyUI `/prompt` needs.
-- Every user-fillable input appears in `node.inputs[]` with `"widget": {"name": <name>}`. Node-link inputs (`"link": N`) are connections, not fillable — exclude.
-- `node.inputs[].localized_name` is the human-readable Chinese label ("种子", "文本", "宽度", ...).
-- `node.widgets_values[]` aligns positionally with the `inputs[]` entries that have `widget` (i.e. widget inputs). Loader combos (e.g. `clip_name`, `unet_name`) also come through as widgets — model-selection combo boxes.
-- The API-format structure we must submit to `/prompt` is `{"<node_id>": {"class_type": "<node.type>", "inputs": {"<widget_name>": <widget_value>}}}`. ComfyUI accepts node IDs as strings; both `int` keys from the file and `str` keys are acceptable, but we normalize to `str`.
+- `Workflow.body` 是 **UI 格式**(`{"nodes":[{id, type, inputs, widgets_values, ...}]}`),不是 ComfyUI `/prompt` 需要的 **API 格式** `{"<id>":{"class_type","inputs"}}`。
+- 每个可填输入都出现在 `node.inputs[]` 中,带 `"widget": {"name": <name>}`。节点连线输入(`"link": N`)是连接关系,不可填 — 排除。
+- `node.inputs[].localized_name` 是人类可读的中文标签("种子"、"文本"、"宽度"、…)。
+- `node.widgets_values[]` 与带 `widget` 的 `inputs[]` 条目位置一一对应(即 widget 输入)。加载器的下拉框(如 `clip_name`、`unet_name`)也走 widget 进来 — 模型选择组合框。
+- 提交给 `/prompt` 的 API 格式结构是 `{"<node_id>": {"class_type": "<node.type>", "inputs": {"<widget_name>": <widget_value>}}}`。ComfyUI 接受字符串节点 ID;文件里 int key 与 str key 都行,但我们统一规范为 str。
 
-## Design
+## 设计
 
-### Field type extension
+### 字段类型扩展
 
-Extend `GenerationField.type` from `^(text|seed)$` to `^(text|seed|number)$`:
-- `text` → rendered as `<el-input type="textarea">`
-- `seed` → rendered as `<el-input-number>` + a "随机" checkbox (existing behavior)
-- `number` → rendered as `<el-input-number>` with `:controls-position="right"`, no random checkbox. Validation: must be a number.
+把 `GenerationField.type` 从 `^(text|seed)$` 扩展为 `^(text|seed|number)$`:
+- `text` → 渲染为 `<el-input type="textarea">`
+- `seed` → 渲染为 `<el-input-number>` + "随机" 复选框(现有行为)
+- `number` → 渲染为 `<el-input-number>` 带 `:controls-position="right"`,无随机复选框。校验:必须是数字。
 
-This matches how the user thinks: "文字,数字,种子" — and the discovery heuristic decides which.
+这与用户想法吻合:"文字,数字,种子" — 自动发现启发式来定类型。
 
-### New backend helpers (in `backend/app/services/generation.py`)
+### 新增后端辅助函数(在 `backend/app/services/generation.py`)
 
 ```python
 def workflow_to_api_template(body_json: dict) -> dict:
-    """Convert a ComfyUI UI-format workflow body into the API-format dict ComfyUI /prompt expects."""
+    """把 ComfyUI UI 格式工作流 body 转成 /prompt 需要的 API 格式 dict。"""
     result = {}
     for node in body_json.get("nodes", []):
         node_id = str(node["id"])
@@ -53,7 +53,7 @@ def workflow_to_api_template(body_json: dict) -> dict:
 
 
 def infer_field_type(widget_name: str, value) -> str:
-    """Heuristic: seed names → 'seed'; numeric-ish default → 'number'; else 'text'."""
+    """启发式: 名字是 seed → 'seed'; 数值型默认值 → 'number'; 否则 'text'。"""
     lowered = widget_name.lower()
     if lowered == "seed":
         return "seed"
@@ -65,11 +65,10 @@ def infer_field_type(widget_name: str, value) -> str:
 
 
 def discover_fields(body_json: dict) -> list[dict]:
-    """Return candidate fields (dicts shaped like GenerationField) from a UI-format body.
+    """从 UI 格式 body 返回候选字段(形状与 GenerationField 一致)。
 
-    A candidate is generated for every widget input whose value is a scalar
-    (str/int/float/bool). Node-link inputs are skipped. Combos (loader model
-    selection) are included as `text` type; the user can uncheck them.
+    对每个值为标量(str/int/float/bool)的 widget 输入生成一个候选。
+    节点连线输入跳过。组合框(加载器模型选择)按 text 类型包含进来;用户可取消勾选。
     """
     candidates = []
     api = workflow_to_api_template(body_json)
@@ -98,17 +97,17 @@ def discover_fields(body_json: dict) -> list[dict]:
     return candidates
 ```
 
-Notes:
-- `key` defaults to the widget `name`. If two nodes expose the same widget name (e.g. two `CLIPTextEncode` nodes both exposing `text`), the second candidate gets a disambiguated key (`text`, `text_1`). The disambiguation pass runs in the route/service, not in `discover_fields` (keeps the pure function simple; the route dedups).
-- `label` prefers `localized_name` (Chinese) over `[node_type] name`.
+说明:
+- `key` 默认用 widget 名 `name`。若两个节点暴露同名 widget(如两个 `CLIPTextEncode` 都暴露 `text`),第二个候选在路由/服务层去重时加后缀(`text`、`text_1`)。
+- `label` 优先用 `localized_name`(中文),兜底用 `[节点类型] name`。
 
-### `apply_parameters` change
+### `apply_parameters` 改动
 
-`apply_parameters(api_template, fields, parameters)` already mutates `filled[node_id]["inputs"][input_name] = value`. After we extend `type` to allow `number`, add a `number` branch mirroring `seed`'s integer requirement (accept `int`/`float`, reject non-numeric):
+`apply_parameters(api_template, fields, parameters)` 已经做 `filled[node_id]["inputs"][input_name] = value`。扩展 `type` 允许 `number` 后,加一个 `number` 分支(镜像 seed 的整数要求,接受 `int`/`float`,拒绝非数字):
 
 ```python
 if field["type"] == "seed":
-    ...  # unchanged
+    ...  # 不变
 elif field["type"] == "number":
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(f"字段 {field['label']} 必须是数字")
@@ -116,16 +115,16 @@ elif field["required"] and (value is None or value == ""):
     raise ValueError(f"字段 {field['label']} 为必填")
 ```
 
-### New discover endpoint
+### 新增 discover 接口
 
-`GET /workflows/{workflow_id}/generation-config/discover` (in `backend/app/api/routes/workflows.py`):
+`GET /workflows/{workflow_id}/generation-config/discover`(在 `backend/app/api/routes/workflows.py`):
 
-- 404 if workflow missing.
-- Loads `wf.body`, parses JSON.
-- Calls `discover_fields`, dedups keys (`text`, `text_1`, ...) for collisions.
-- Returns `{"api_template": <converted>, "fields": [<candidates>]}` (both computed fresh from `body`).
+- 工作流不存在则 404。
+- 读 `wf.body`,解析 JSON。
+- 调 `discover_fields`,key 去重(重复加 `text`、`text_1`、…)。
+- 返回 `{"api_template": <转换结果>, "fields": [<候选>]}`(两者都从 body 实时算)。
 
-Response schema: a new `GenerationDiscoverOut` in `backend/app/schemas/generation.py`:
+响应 schema: 在 `backend/app/schemas/generation.py` 新增 `GenerationDiscoverOut`:
 
 ```python
 class GenerationDiscoverOut(BaseModel):
@@ -133,57 +132,57 @@ class GenerationDiscoverOut(BaseModel):
     fields: list[GenerationField]
 ```
 
-### Save path
+### 保存路径
 
-The existing `PUT /workflows/{workflow_id}/generation-config` accepts `{api_template, fields}`. The frontend now sends the auto-computed `api_template` (from discovery) + the user's checked `fields`. **No backend change needed on save** — `api_template` is still stored as the fillable base. (It is not displayed to the user anymore; it is opaque plumbing.)
+现有 `PUT /workflows/{workflow_id}/generation-config` 接受 `{api_template, fields}`。前端现在发送自动算出的 `api_template`(来自 discover)+ 用户勾选的 `fields`。**保存路径后端无需改动** — `api_template` 仍存为填充基底(不再展示给用户,是透明管道)。
 
-### Frontend: config modal (`WorkflowGenerationConfigModal.vue`)
+### 前端: 配置弹窗(`WorkflowGenerationConfigModal.vue`)
 
-Replace the current JSON textarea + raw field table with:
+把当前 JSON textarea + 裸字段表替换为:
 
-- **Load:** on mount, call `GET .../generation-config` (existing). If 404 (no config saved), call `GET .../generation-config/discover` and populate the checklist with all candidates **pre-checked**. If a config exists, load its `fields` and render the checklist with those checked.
-- **Checklist UI:** for each candidate field, an `el-checkbox` row: `[label] ([key])`. The `label` is the Chinese `localized_name`; the bracketed `key` is the technical widget name, kept so the user can disambiguate two same-name fields.
-- **Toggle:** unchecking a field removes it from the saved `fields` array. The user can also mark a field as "必填" (small toggle) and edit its label (inline `el-input`).
-- **Save:** `PUT` with `{ api_template: <from discover>, fields: <checked> }`.
-- **Fallback:** if `discover` returns zero candidates (unusual; empty workflow), show a hint that no fillable inputs were found.
-- Remove the raw JSON textarea entirely. The `api_template` is no longer user-editable.
+- **加载:** 挂载时调 `GET .../generation-config`(现有)。若 404(未保存过配置),调 `GET .../generation-config/discover` 把所有候选 **预勾选** 填充进清单。若已有配置,加载其 `fields`,按已勾选状态渲染清单。
+- **勾选清单 UI:** 每个候选字段一行 `el-checkbox`:`[label] ([key])`。`label` 是中文 `localized_name`;括号里 `key` 是技术 widget 名,保留用于区分两个同名字段。
+- **切换:** 取消勾选即从保存的 `fields` 数组移除。用户还可把字段标为 "必填"(小开关)和改 label(行内 `el-input`)。
+- **保存:** `PUT` 发送 `{ api_template: <来自 discover>, fields: <勾选的> }`。
+- **兜底:** 若 `discover` 返回零候选(异常;空工作流),提示未发现可填输入。
+- 彻底删除原始 JSON textarea。`api_template` 不再用户可编辑。
 
-### Frontend: generate create modal (`GenerationCreateModal.vue`)
+### 前端: 生成创建弹窗(`GenerationCreateModal.vue`)
 
-Existing dynamic form already iterates `fields` and renders per-type input. Extend:
-- `number` type → `<el-input-number>` (same as seed minus random checkbox).
-- Keep everything else unchanged. No other change needed.
+现有动态表单已遍历 `fields` 并按类型渲染。扩展:
+- `number` 类型 → `<el-input-number>`(同 seed 但去掉随机复选框)。
+- 其余保持不变,无需其他改动。
 
-### Non-Goals
+### 非目标
 
-- No migration of existing saved configs: existing `api_template`/`fields` values remain valid (they already use `text`/`seed`; `number` is additive). Users can re-run discovery to refresh.
-- No UI→API conversion cache: `workflow_to_api_template` recomputes on every discover call and on every generation `create` (small body, negligible cost).
-- No API-format template editing: the JSON textarea is removed; there is no power-user escape hatch to hand-edit the payload. (If later needed, a "show raw JSON" toggle can be added.)
-- No per-field reorder; fields render in workflow node order.
+- 不做存量配置迁移:现有 `api_template`/`fields` 值仍有效(已用 `text`/`seed`;`number` 是新增)。用户可重新跑 discover 刷新。
+- 不做 UI→API 转换缓存:`workflow_to_api_template` 每次 discover 和每次 generation `create` 都重算(body 小,成本可忽略)。
+- 不做 API 格式模板编辑:JSON textarea 删除,没有"手动改载荷"的专家逃生口。(以后需要可加 "显示原始 JSON" 开关。)
+- 不做字段排序;字段按工作流节点顺序渲染。
 
-## Files changed
+## 改动文件
 
-Backend:
-- `backend/app/schemas/generation.py` — `type` pattern → `text|seed|number`; add `GenerationDiscoverOut`.
-- `backend/app/services/generation.py` — add `workflow_to_api_template`, `infer_field_type`, `discover_fields`; extend `apply_parameters` number branch.
-- `backend/app/api/routes/workflows.py` — add `GET /{workflow_id}/generation-config/discover`.
+后端:
+- `backend/app/schemas/generation.py` — `type` pattern → `text|seed|number`;新增 `GenerationDiscoverOut`。
+- `backend/app/services/generation.py` — 新增 `workflow_to_api_template`、`infer_field_type`、`discover_fields`;扩展 `apply_parameters` number 分支。
+- `backend/app/api/routes/workflows.py` — 新增 `GET /{workflow_id}/generation-config/discover`。
 
-Frontend:
-- `frontend/src/features/workflows/WorkflowGenerationConfigModal.vue` — checklist UI + auto-discovery, remove JSON textarea.
-- `frontend/src/features/generations/GenerationCreateModal.vue` — render `number` fields as `el-input-number`.
+前端:
+- `frontend/src/features/workflows/WorkflowGenerationConfigModal.vue` — 勾选清单 UI + 自动发现,删除 JSON textarea。
+- `frontend/src/features/generations/GenerationCreateModal.vue` — `number` 字段渲染为 `el-input-number`。
 
-Tests (backend, existing pytest):
-- `backend/tests/test_generation_service.py` — `workflow_to_api_template` (UI body → API dict), `infer_field_type` (seed/number/text), `discover_fields` (filters link inputs, labels via localized_name), `apply_parameters` number branch.
-- `backend/tests/test_workflows_api.py` — discover endpoint (200 with fields, 404 missing workflow).
-- Existing tests must stay green (91 collected, 1 known Windows fail).
+测试(后端,现有 pytest):
+- `backend/tests/test_generation_service.py` — `workflow_to_api_template`(UI body → API dict)、`infer_field_type`(seed/number/text)、`discover_fields`(过滤 link 输入、用 localized_name 做标签)、`apply_parameters` number 分支。
+- `backend/tests/test_workflows_api.py` — discover 接口(200 带字段、404 缺失工作流)。
+- 现有测试必须保持绿(91 collected,1 个已知 Windows fail)。
 
-## Verification
+## 验证
 
-1. `backend\.venv\Scripts\python -m pytest backend/tests -v` → 90 pass + 1 known Windows fail (no regression).
-2. `npm --prefix frontend run typecheck` → PASS.
-3. `npm --prefix frontend run build` → PASS.
-4. Manual smoke (start-dev.ps1):
-   - Open `/workflows`, click 配置 on z-image-turbo → modal lists fields with Chinese labels (种子, 文本, 宽度, 高度, ...), all pre-checked.
-   - Uncheck everything except 文本 (node 7) + seed (node 16); save.
-   - Open `/generations`, 新建生成, pick z-image-turbo → only 提示词 (textarea) + 种子 (input-number + 随机 checkbox) appear.
-   - Submit a generation; confirm ComfyUI receives a valid API-format payload and a success run returns an image.
+1. `backend\.venv\Scripts\python -m pytest backend/tests -v` → 90 pass + 1 已知 Windows fail(无回归)。
+2. `npm --prefix frontend run typecheck` → PASS。
+3. `npm --prefix frontend run build` → PASS。
+4. 手动冒烟(start-dev.ps1):
+   - 打开 `/workflows`,在 z-image-turbo 上点 配置 → 弹窗列出带中文标签的字段(种子、文本、宽度、高度、…),全部预勾选。
+   - 只保留 文本(node 7)+ 种子(node 16),取消其余;保存。
+   - 打开 `/generations`,`新建生成`,选 z-image-turbo → 只出现 提示词(textarea)+ 种子(input-number + 随机复选框)。
+   - 提交一次生成;确认 ComfyUI 收到合法 API 格式载荷,成功运行返回图片。
