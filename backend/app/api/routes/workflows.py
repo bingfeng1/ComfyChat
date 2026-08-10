@@ -15,6 +15,7 @@ from app.schemas.generation import (
     GenerationConfigListOut,
     GenerationConfigOut,
     GenerationConfigSummaryOut,
+    GenerationDiscoverOut,
 )
 from app.schemas.workflow import (
     ConflictOut,
@@ -24,6 +25,7 @@ from app.schemas.workflow import (
     WorkflowVersionListOut,
     WorkflowVersionOut,
 )
+from app.services.generation import discover_fields, workflow_to_api_template
 from app.services.workflow import WorkflowService
 
 router = APIRouter(prefix="/workflows", tags=["workflows"])
@@ -94,6 +96,30 @@ def get_generation_config(
     if cfg is None:
         raise HTTPException(status_code=404, detail="Generation config not found")
     return GenerationConfigOut.from_model(cfg)
+
+
+@router.get("/{workflow_id}/generation-config/discover", response_model=GenerationDiscoverOut)
+def discover_generation_config(
+    workflow_id: str,
+    repo: WorkflowRepository = Depends(_repo),
+) -> GenerationDiscoverOut:
+    wf = repo.get(workflow_id)
+    if wf is None:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    body_json = json.loads(wf.body)
+    api_template = workflow_to_api_template(body_json)
+    fields = discover_fields(body_json)
+    seen: set[str] = set()
+    for f in fields:
+        base = f["key"]
+        key = base
+        n = 1
+        while key in seen:
+            key = f"{base}_{n}"
+            n += 1
+        seen.add(key)
+        f["key"] = key
+    return GenerationDiscoverOut(api_template=api_template, fields=fields)
 
 
 @router.get("/{workflow_id}", response_model=WorkflowOut)

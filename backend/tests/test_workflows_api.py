@@ -1,4 +1,5 @@
 ﻿import io
+import json
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -203,3 +204,78 @@ def test_versions_404_unknown_workflow(tmp_path):
     client, _ = _client(tmp_path)
     r = client.get("/workflows/nonexistent/versions")
     assert r.status_code == 404
+
+
+UI_BODY = json.dumps({
+    "nodes": [
+        {
+            "id": 7,
+            "type": "CLIPTextEncode",
+            "inputs": [
+                {"name": "clip", "localized_name": "clip", "link": 1},
+                {"name": "text", "localized_name": "文本", "widget": {"name": "text"}},
+            ],
+            "widgets_values": ["a cat"],
+        },
+        {
+            "id": 16,
+            "type": "KSampler",
+            "inputs": [
+                {"name": "model", "localized_name": "模型", "link": 2},
+                {"name": "seed", "localized_name": "种子", "widget": {"name": "seed"}},
+            ],
+            "widgets_values": [42],
+        },
+    ]
+})
+
+
+def test_discover_generation_config(tmp_path):
+    client, _ = _client(tmp_path)
+    files = {"file": ("z.json", io.BytesIO(UI_BODY.encode("utf-8")), "application/json")}
+    r = client.post("/workflows/import", files=files)
+    wf_id = r.json()["id"]
+
+    d = client.get(f"/workflows/{wf_id}/generation-config/discover")
+    assert d.status_code == 200
+    data = d.json()
+    assert data["api_template"]["7"]["class_type"] == "CLIPTextEncode"
+    assert data["api_template"]["7"]["inputs"]["text"] == "a cat"
+    keys = {f["key"] for f in data["fields"]}
+    assert keys == {"text", "seed"}
+    text = next(f for f in data["fields"] if f["key"] == "text")
+    assert text["label"] == "文本"
+    assert text["type"] == "text"
+
+
+def test_discover_generation_config_404_missing_workflow(tmp_path):
+    client, _ = _client(tmp_path)
+    r = client.get("/workflows/nope/generation-config/discover")
+    assert r.status_code == 404
+
+
+def test_discover_dedupes_same_name_keys(tmp_path):
+    body = json.dumps({
+        "nodes": [
+            {
+                "id": 7,
+                "type": "CLIPTextEncode",
+                "inputs": [{"name": "text", "localized_name": "正向", "widget": {"name": "text"}}],
+                "widgets_values": ["x"],
+            },
+            {
+                "id": 8,
+                "type": "CLIPTextEncode",
+                "inputs": [{"name": "text", "localized_name": "负向", "widget": {"name": "text"}}],
+                "widgets_values": ["y"],
+            },
+        ]
+    })
+    client, _ = _client(tmp_path)
+    files = {"file": ("z.json", io.BytesIO(body.encode("utf-8")), "application/json")}
+    r = client.post("/workflows/import", files=files)
+    wf_id = r.json()["id"]
+
+    d = client.get(f"/workflows/{wf_id}/generation-config/discover")
+    keys = [f["key"] for f in d.json()["fields"]]
+    assert keys == ["text", "text_1"]
