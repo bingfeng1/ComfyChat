@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
@@ -26,6 +26,7 @@ class Generation(Base):
     prompt_id: Mapped[str] = mapped_column(String(36), nullable=False)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     outputs_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    poll_miss_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[str] = mapped_column(String(40), nullable=False, default=_utcnow)
     updated_at: Mapped[str] = mapped_column(String(40), nullable=False, default=_utcnow, onupdate=_utcnow)
 

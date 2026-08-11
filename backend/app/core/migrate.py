@@ -11,9 +11,23 @@ def migrate(engine: Engine) -> None:
     检测缺失列并 ALTER。已存在列时跳过,可重复执行。
     """
     _ensure_column(engine, "loras", "deleted_from_comfyui")
+    _ensure_column(
+        engine,
+        "generations",
+        "poll_miss_count",
+        col_type="INTEGER",
+        default="0",
+    )
 
 
-def _ensure_column(engine: Engine, table: str, column: str) -> None:
+def _ensure_column(
+    engine: Engine,
+    table: str,
+    column: str,
+    *,
+    col_type: str = "BOOLEAN",
+    default: str = "0",
+) -> None:
     with engine.begin() as conn:
         rows = conn.execute(text(f"PRAGMA table_info({table})")).fetchall()
         names = {row[1] for row in rows}
@@ -22,6 +36,6 @@ def _ensure_column(engine: Engine, table: str, column: str) -> None:
         conn.execute(
             text(
                 f"ALTER TABLE {table} ADD COLUMN {column} "
-                "BOOLEAN NOT NULL DEFAULT 0"
+                f"{col_type} NOT NULL DEFAULT {default}"
             )
         )
