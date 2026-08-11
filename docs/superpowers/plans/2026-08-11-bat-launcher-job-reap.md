@@ -456,8 +456,8 @@ git commit -m "feat(scripts): add port-owner lookup and HTTP readiness helpers"
 - Produces:
   - `[IntPtr]$script:DevJob` —— 当前进程的 Job 句柄(模块级变量,Job Object 生命周期跟帮助器进程)
   - `New-KillOnCloseJob` —— 调 C# 创建 Job,赋 `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`
-  - `Add-ToJob([int]$Pid)` —— 把进程 assign 进 Job
-  - `Wait-JobEmpty($Pids, [int]$TimeoutSeconds)` —— 轮询 `Get-Process` 直到列表全退出,返回 `$true`(全退)/`$false`(超时)
+  - `Add-ToJob -Pid <int>` —— 把进程 assign 进 Job(内部参数名是 `ProcessId`,别名 `Pid`)
+  - `Wait-JobEmpty -TimeoutSeconds <int>` —— 轮询 `Get-Process`(读取 `$script:DevJobPids`)直到列表全退出,返回 `$true`(全退)/`$false`(超时);`-TimeoutSeconds 0` = 无限等待
 
 - [ ] **Step 1: 追加 C# Add-Type 块 + 3 个函数**
 
@@ -522,8 +522,9 @@ $script:DevJobPids = New-Object System.Collections.Generic.List[int]
 function New-KillOnCloseJob {
     if ($script:DevJob -ne [IntPtr]::Zero) { return $script:DevJob }
     $info = New-Object DevJobObject.Native+JOBOBJECT_EXTENDED_LIMIT_INFORMATION
-    $info.BasicLimitInformation.LimitFlags =
-        [DevJobObject.Native+JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE]
+    $basic = $info.BasicLimitInformation
+    $basic.LimitFlags = [DevJobObject.Native]::JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+    $info.BasicLimitInformation = $basic
     $size = [System.Runtime.InteropServices.Marshal]::SizeOf(
         [type]'DevJobObject.Native+JOBOBJECT_EXTENDED_LIMIT_INFORMATION')
     $ptr = [System.Runtime.InteropServices.Marshal]::AllocHGlobal($size)
@@ -536,7 +537,7 @@ function New-KillOnCloseJob {
         }
         $ok = [DevJobObject.Native]::SetInformationJobObject(
             $h,
-            [DevJobObject.Native+JobObjectExtendedLimitInformation],
+            [DevJobObject.Native]::JobObjectExtendedLimitInformation,
             $ptr, $size)
         if (-not $ok) {
             throw [System.ComponentModel.Win32Exception]::new(
@@ -550,11 +551,11 @@ function New-KillOnCloseJob {
 }
 
 function Add-ToJob {
-    param([int]$Pid)
+    param([Alias('Pid')][int]$ProcessId)
     if ($script:DevJob -eq [IntPtr]::Zero) {
         throw 'Job Object not initialized; call New-KillOnCloseJob first'
     }
-    $proc = [System.Diagnostics.Process]::GetProcessById($Pid)
+    $proc = [System.Diagnostics.Process]::GetProcessById($ProcessId)
     try {
         $ok = [DevJobObject.Native]::AssignProcessToJobObject(
             $script:DevJob, $proc.Handle)
@@ -562,8 +563,8 @@ function Add-ToJob {
             throw [System.ComponentModel.Win32Exception]::new(
                 [System.Runtime.InteropServices.Marshal]::GetLastWin32Error())
         }
-        if (-not $script:DevJobPids.Contains($Pid)) {
-            $script:DevJobPids.Add($Pid)
+        if (-not $script:DevJobPids.Contains($ProcessId)) {
+            $script:DevJobPids.Add($ProcessId)
         }
     } finally {
         $proc.Dispose()
