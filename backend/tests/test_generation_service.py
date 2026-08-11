@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from app.core.config import Settings
+from app.integrations.comfyui.client import ComfyUIError
 from app.models.generation import Generation
 from app.repositories.generation import GenerationRepository, WorkflowGenerationConfigRepository
 from app.services.generation import (
@@ -537,3 +538,102 @@ def test_workflow_to_api_template_resolves_links():
     assert api["16"]["inputs"]["positive"] == ["7", 0]
     assert api["16"]["inputs"]["seed"] == 42
     assert api["19"]["inputs"]["images"] == ["17", 0]
+
+
+class FakeCancellableComfy(FakeComfy):
+    def __init__(self):
+        super().__init__()
+        self.interrupt_calls = 0
+        self.delete_queued_calls = []
+
+    def interrupt(self):
+        self.interrupt_calls += 1
+
+    def delete_queued(self, prompt_id):
+        self.delete_queued_calls.append(prompt_id)
+
+
+def test_cancel_queued_calls_delete_queued(session, tmp_path):
+    settings = _settings(tmp_path)
+    _config(session, "wf1")
+    comfy = FakeCancellableComfy()
+    svc = _service(session, settings, comfy)
+    gen = svc.create("wf1", {"positive_prompt": "cat", "seed": 5, "seed_random": False})
+
+    result = svc.cancel(gen.id)
+
+    assert result.status == "failed"
+    assert result.error == "用户中止"
+    assert comfy.delete_queued_calls == ["p-1"]
+    assert comfy.interrupt_calls == 0
+
+
+def test_cancel_running_calls_interrupt(session, tmp_path):
+    settings = _settings(tmp_path)
+    _config(session, "wf1")
+    comfy = FakeCancellableComfy()
+    comfy.history = {}
+    svc = _service(session, settings, comfy)
+    repo = GenerationRepository(session)
+    gen = repo.create("wf1", "z-image", {}, "running", "p-1")
+
+    result = svc.cancel(gen.id)
+
+    assert result.status == "failed"
+    assert result.error == "用户中止"
+    assert comfy.interrupt_calls == 1
+    assert comfy.delete_queued_calls == []
+
+
+def test_cancel_terminal_status_raises(session, tmp_path):
+    settings = _settings(tmp_path)
+    comfy = FakeCancellableComfy()
+    svc = _service(session, settings, comfy)
+    repo = GenerationRepository(session)
+    gen = repo.create("wf1", "z-image", {}, "success", "p-1")
+
+    with pytest.raises(ValueError, match="already terminal"):
+        svc.cancel(gen.id)
+
+
+def test_cancel_not_found_raises(session, tmp_path):
+    settings = _settings(tmp_path)
+    svc = _service(session, settings, FakeCancellableComfy())
+
+    with pytest.raises(ValueError, match="not found"):
+        svc.cancel("nonexistent")
+
+
+def test_cancel_swallows_comfyui_error(session, tmp_path):
+    settings = _settings(tmp_path)
+    _config(session, "wf1")
+    comfy = FakeCancellableComfy()
+    comfy.history = {}
+    svc = _service(session, settings, comfy)
+    repo = GenerationRepository(session)
+    gen = repo.create("wf1", "z-image", {}, "running", "p-1")
+
+    def boom():
+        raise ComfyUIError("comfyui down")
+
+    comfy.interrupt = boom
+
+    result = svc.cancel(gen.id)
+
+    assert result.status == "failed"
+    assert result.error == "用户中止"
+
+
+def test_poll_marks_failed_after_two_running_misses(session, tmp_path):
+    settings = _settings(tmp_path)
+    comfy = FakeComfy()
+    comfy.history = {}
+    svc = _service(session, settings, comfy)
+    repo = GenerationRepository(session)
+    gen = repo.create("wf1", "z-image", {}, "running", "p-1")
+
+    svc.poll_until_done(gen.id, poll_interval=0.0)
+
+    got = repo.get(gen.id)
+    assert got.status == "failed"
+    assert "生成结果丢失" in (got.error or "")

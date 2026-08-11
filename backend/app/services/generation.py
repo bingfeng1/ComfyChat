@@ -12,7 +12,7 @@ from typing import Callable, Iterator, Optional
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
-from app.integrations.comfyui.client import ComfyUIClient
+from app.integrations.comfyui.client import ComfyUIClient, ComfyUIError
 from app.models.generation import Generation
 from app.repositories.generation import GenerationRepository, WorkflowGenerationConfigRepository
 from app.repositories.workflow import WorkflowRepository
@@ -330,6 +330,26 @@ class GenerationService:
             prompt_id=prompt_id,
         )
 
+    def cancel(self, generation_id: str) -> Generation:
+        """按 generation 当前状态选对应 ComfyUI 端点,把 row 标 failed=用户中止。"""
+        with self._session_scope() as session:
+            repo = GenerationRepository(session)
+            gen = repo.get(generation_id)
+            if gen is None:
+                raise ValueError("generation not found")
+            if gen.status in ("success", "failed"):
+                raise ValueError(f"already terminal: {gen.status}")
+            try:
+                if gen.status == "queued":
+                    self.comfyui.delete_queued(gen.prompt_id)
+                else:  # running
+                    self.comfyui.interrupt()
+            except ComfyUIError:
+                pass
+            repo.mark_failed(generation_id, "用户中止")
+            session.refresh(gen)
+            return gen
+
     def outputs_dir(self, gen: Generation) -> Path:
         if gen.id is None:
             gen.id = uuid.uuid4().hex
@@ -346,13 +366,30 @@ class GenerationService:
             yield self.gen_repo.session
 
     def _poll_once(self, session: Session, gen: Generation) -> bool:
-        """查询一次 ComfyUI，返回 True 表示已到达终态。"""
+        """查询一次 ComfyUI,返回 True 表示已到达终态。
+
+        用户中止 + ComfyUI 清掉 history 的边缘场景:`gen.status == "running"`
+        但 `get_history` 返回空;连续 2 次空就 mark_failed 退出,避免轮询死循环。
+        """
         repo = GenerationRepository(session)
-        try:
+        if gen.status == "running":
             history = self.comfyui.get_history(gen.prompt_id)
-        except Exception:
-            return False
-        entry = history.get(gen.prompt_id)
+            if not history:
+                miss = (gen.poll_miss_count or 0) + 1
+                if miss >= 2:
+                    repo.mark_failed(gen.id, "生成结果丢失")
+                    return True
+                repo.update_poll_miss_count(gen.id, miss)
+                return False
+            if (gen.poll_miss_count or 0) > 0:
+                repo.update_poll_miss_count(gen.id, 0)
+            entry = history.get(gen.prompt_id)
+        else:
+            try:
+                history = self.comfyui.get_history(gen.prompt_id)
+            except Exception:
+                return False
+            entry = history.get(gen.prompt_id)
         if entry is None:
             if gen.status == "queued":
                 repo.update_status(gen.id, "running")
