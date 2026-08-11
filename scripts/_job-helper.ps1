@@ -245,7 +245,35 @@ if ($Command -eq 'Test') {
 }
 
 if ($Command -eq 'PreFlight') {
-    Write-Host "PreFlight not implemented yet" -ForegroundColor Yellow
+    $RepoRoot = (Resolve-Path $RepoRoot).Path
+    Set-Location $RepoRoot
+
+    $tmpDir = Join-Path $RepoRoot 'storage\tmp'
+    if (-not (Test-Path -LiteralPath $tmpDir)) {
+        New-Item -ItemType Directory -Force -Path $tmpDir | Out-Null
+    }
+    $pidFile = Join-Path $tmpDir '.dev-pids.json'
+
+    # 1) Clean stale PID file
+    $existing = Read-PidFile $pidFile
+    if ($existing) {
+        foreach ($label in 'backend','frontend') {
+            $targetPid = $existing.$label
+            if (-not $targetPid) { continue }
+            $proc = Get-Process -Id $targetPid -ErrorAction SilentlyContinue
+            if ($proc) {
+                Write-Warning "PreFlight: killing stale $label PID $targetPid"
+                taskkill /T /F /PID $targetPid 2>&1 | Out-Null
+            }
+        }
+        Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue
+    }
+
+    # 2) Belt-and-suspenders port cleanup
+    Kill-PortOwner (Get-BackendPort)
+    Kill-PortOwner (Get-FrontendPort)
+
+    Write-Host "PreFlight done." -ForegroundColor Green
     exit 0
 }
 
