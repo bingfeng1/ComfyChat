@@ -73,6 +73,41 @@ function Write-PidFile {
     $Obj | ConvertTo-Json | Set-Content -LiteralPath $Path -Encoding utf8
 }
 
+# -------- port / http utilities --------
+
+function Get-PortOwnerPid {
+    param([int]$Port)
+    try {
+        $conn = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction Stop
+        return [int]$conn.OwningProcess
+    } catch {
+        return 0
+    }
+}
+
+function Kill-PortOwner {
+    param([int]$Port)
+    $pid_ = Get-PortOwnerPid $Port
+    if ($pid_ -le 0) { return }
+    Write-Warning "Killing straggler on port $Port (PID $pid_)"
+    taskkill /T /F /PID $pid_ 2>&1 | Out-Null
+}
+
+function Wait-HttpReady {
+    param([string]$Url, [int]$TimeoutSeconds)
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    while ((Get-Date) -lt $deadline) {
+        try {
+            $r = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop
+            if ($r.StatusCode -eq 200) { return $true }
+        } catch {
+            # try again
+        }
+        Start-Sleep -Seconds 1
+    }
+    return $false
+}
+
 # -------- command dispatch --------
 
 if ($Command -eq 'Test') {
