@@ -120,3 +120,28 @@ def test_list_empty_page_returns_empty(session):
     for i in range(3):
         repo.create("wf1", "z-image", {"i": i}, "success", f"p{i}")
     assert repo.list(page=999, page_size=15) == []
+
+
+def test_update_poll_miss_count(session):
+    repo = _mk_repo(session)
+    gen = repo.create(
+        workflow_id="wf1",
+        workflow_name="z-image",
+        parameters={},
+        status="running",
+        prompt_id="p-1",
+    )
+    assert gen.poll_miss_count == 0
+
+    repo.update_poll_miss_count(gen.id, 1)
+    session.expire_all()
+    assert repo.get(gen.id).poll_miss_count == 1
+
+    repo.update_poll_miss_count(gen.id, 0)
+    session.expire_all()
+    assert repo.get(gen.id).poll_miss_count == 0
+
+
+def test_update_poll_miss_count_noop_when_missing(session):
+    repo = _mk_repo(session)
+    repo.update_poll_miss_count("nonexistent", 5)

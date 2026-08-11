@@ -80,6 +80,14 @@ class GenerationRepository:
         gen.updated_at = _utcnow()
         self.session.commit()
 
+    def update_poll_miss_count(self, generation_id: str, count: int) -> None:
+        gen = self.get(generation_id)
+        if gen is None:
+            return
+        gen.poll_miss_count = count
+        gen.updated_at = _utcnow()
+        self.session.commit()
+
     def mark_failed(self, generation_id: str, error: str) -> None:
         gen = self.get(generation_id)
         if gen is None:
