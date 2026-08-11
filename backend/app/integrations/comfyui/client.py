@@ -94,6 +94,14 @@ class ComfyUIClient:
         response = self._request("get", "/queue")
         return response.json()
 
+    def interrupt(self) -> None:
+        """POST /interrupt — 中止当前正在运行的 job(无 request body)。"""
+        self._request("post", "/interrupt", json=None)
+
+    def delete_queued(self, prompt_id: str) -> None:
+        """POST /queue body {"delete":[prompt_id]} — 从队列删除 pending job。"""
+        self._request("post", "/queue", json={"delete": [prompt_id]})
+
     def get_object_info(self, node_types: list[str] | None = None) -> dict:
         """拉取节点 schema。node_types 为 None 时返回全部。
 

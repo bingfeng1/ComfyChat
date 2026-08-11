@@ -184,3 +184,31 @@ def test_get_queue(monkeypatch):
 
     assert calls[0][1].endswith("/queue")
     assert "abc123" in result
+
+
+def test_interrupt_posts_interrupt_endpoint(monkeypatch):
+    calls = []
+
+    def get_handler(kind, url, payload):
+        calls.append((kind, url, payload))
+
+    _fake_client(monkeypatch, get_handler)
+    client = ComfyUIClient(Settings(comfyui_base_url="http://example.com:8188/"))
+
+    client.interrupt()
+
+    assert calls == [("post", "http://example.com:8188/interrupt", None)]
+
+
+def test_delete_queued_posts_queue_with_prompt_id(monkeypatch):
+    calls = []
+
+    def get_handler(kind, url, payload):
+        calls.append((kind, url, payload))
+
+    _fake_client(monkeypatch, get_handler)
+    client = ComfyUIClient(Settings(comfyui_base_url="http://example.com:8188/"))
+
+    client.delete_queued("p-42")
+
+    assert calls == [("post", "http://example.com:8188/queue", {"delete": ["p-42"]})]
