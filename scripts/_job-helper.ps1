@@ -73,6 +73,99 @@ function Write-PidFile {
     $Obj | ConvertTo-Json | Set-Content -LiteralPath $Path -Encoding utf8
 }
 
+# -------- ComfyUI auto-start --------
+
+function Get-ComfyUIUrl {
+    $raw = (Read-DotEnv (Join-Path $RepoRoot '.env'))['COMFYUI_BASE_URL']
+    if ([string]::IsNullOrWhiteSpace($raw)) { return 'http://127.0.0.1:8188' }
+    return $raw.TrimEnd('/')
+}
+
+function Get-ComfyUIPort {
+    $url = Get-ComfyUIUrl
+    try {
+        $uri = [System.Uri]::new($url)
+        return $uri.Port
+    } catch {
+        return 8188
+    }
+}
+
+function Test-ComfyUIRunning {
+    param([string]$Url)
+    try {
+        $r = Invoke-WebRequest -Uri "$Url/" -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop
+        return $r.StatusCode -eq 200
+    } catch {
+        return $false
+    }
+}
+
+function Find-ComfyUIPortableRoot {
+    param([string]$UserDataDir)
+    $candidate = $UserDataDir
+    $maxLevels = 4
+    for ($i = 0; $i -lt $maxLevels; $i++) {
+        $candidate = Split-Path -Parent $candidate
+        $mainPy = Join-Path $candidate 'ComfyUI\main.py'
+        if (Test-Path -LiteralPath $mainPy) {
+            return $candidate
+        }
+    }
+    return $null
+}
+
+function Start-ComfyUI {
+    param([string]$RepoRoot)
+    $envPath = Join-Path $RepoRoot '.env'
+    $comfyuiRoot = (Read-DotEnv $envPath)['COMFYUI_USERDATA_DIR']
+    
+    if ([string]::IsNullOrWhiteSpace($comfyuiRoot)) {
+        Write-Warning "COMFYUI_USERDATA_DIR not set in .env, skipping ComfyUI auto-start"
+        return $false
+    }
+    
+    $portableRoot = Find-ComfyUIPortableRoot -UserDataDir $comfyuiRoot
+    if (-not $portableRoot) {
+        Write-Warning "Cannot find ComfyUI portable root from $comfyuiRoot, skipping ComfyUI auto-start"
+        return $false
+    }
+    
+    $mainScript = Join-Path $portableRoot 'run_nvidia_gpu_manager.bat'
+    if (-not (Test-Path -LiteralPath $mainScript)) {
+        $mainScript = Join-Path $portableRoot 'run_nvidia_gpu.bat'
+    }
+    if (-not (Test-Path -LiteralPath $mainScript)) {
+        Write-Warning "No run_*.bat found in $portableRoot, skipping ComfyUI auto-start"
+        return $false
+    }
+    
+    Write-Host "ComfyUI not running, starting via $mainScript" -ForegroundColor Yellow
+    
+    $null = Start-Process -FilePath $mainScript -WorkingDirectory $portableRoot -PassThru -WindowStyle Hidden
+    
+    $comfyuiUrl = Get-ComfyUIUrl
+    $comfyuiPort = Get-ComfyUIPort
+    Write-Host "Waiting for ComfyUI on port $comfyuiPort..." -ForegroundColor Yellow
+    $ready = $false
+    $deadline = (Get-Date).AddSeconds(60)
+    while ((Get-Date) -lt $deadline) {
+        if (Test-ComfyUIRunning -Url $comfyuiUrl) {
+            $ready = $true
+            break
+        }
+        Start-Sleep -Milliseconds 1000
+    }
+    
+    if ($ready) {
+        Write-Host "ComfyUI is ready at $comfyuiUrl" -ForegroundColor Green
+        return $true
+    } else {
+        Write-Warning "ComfyUI failed to start within 60 seconds"
+        return $false
+    }
+}
+
 # -------- port / http utilities --------
 
 function Get-PortOwnerPid {
@@ -253,6 +346,16 @@ if ($Command -eq 'PreFlight') {
         New-Item -ItemType Directory -Force -Path $tmpDir | Out-Null
     }
     $pidFile = Join-Path $tmpDir '.dev-pids.json'
+
+    # 0) Auto-start ComfyUI if not running
+    $comfyuiUrl = Get-ComfyUIUrl
+    Write-Host "Checking ComfyUI at $comfyuiUrl..." -ForegroundColor Cyan
+    if (-not (Test-ComfyUIRunning -Url $comfyuiUrl)) {
+        Write-Host "ComfyUI is not running." -ForegroundColor Yellow
+        $null = Start-ComfyUI -RepoRoot $RepoRoot
+    } else {
+        Write-Host "ComfyUI is already running at $comfyuiUrl" -ForegroundColor Green
+    }
 
     # 1) Clean stale PID file
     $existing = Read-PidFile $pidFile
