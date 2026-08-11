@@ -10,7 +10,7 @@ Compact instructions for OpenCode sessions. Specs/plans (`docs/superpowers/{spec
 - `docs/superpowers/{specs,plans}/` — design specs and implementation plans; read before new work.
 - `storage/` — runtime files (SQLite, uploads, outputs, thumbs, tmp). Fully gitignored; never commit, do not assume empty. Generated images live under `storage/outputs/{YYYY-MM}/{gen_id}/`.
 - `.superpowers/` — brainstorm visual-companion + SDD workspace scratch, gitignored. Delete freely when a plan completes.
-- `scripts/start-dev.ps1` / `stop-dev.ps1` — start/stop both services as background processes; PIDs in `storage/tmp/.dev-pids.json`.
+- `scripts/start-dev.bat` / `stop-dev.bat` — start/stop both services as background processes with Job-Object reaping; PIDs in `storage/tmp/.dev-pids.json`.
 
 ## Setup (China network)
 
@@ -21,8 +21,8 @@ Compact instructions for OpenCode sessions. Specs/plans (`docs/superpowers/{spec
 
 ## Common commands (cwd = repo root)
 
-- Start both: `powershell -ExecutionPolicy Bypass -File scripts\start-dev.ps1` (add `-OpenBrowser` to launch browser).
-- Stop both: `powershell -ExecutionPolicy Bypass -File scripts\stop-dev.ps1`.
+- Start both: `cmd /c scripts\start-dev.bat` (参数 `-OpenBrowser` 启动后开浏览器;`-WaitSeconds N` 改就绪等待超时,默认 25)。
+- Stop both: `cmd /c scripts\stop-dev.bat`。
 - Backend tests: `backend\.venv\Scripts\python -m pytest backend/tests/<file> -v`. Target: 111 tests collected, 110 pass + 1 known Windows fail (see Quirks).
 - Full backend suite: `backend\.venv\Scripts\python -m pytest backend/tests -v`.
 - Backend dev alone: `backend\.venv\Scripts\python -m uvicorn app.main:app --port 8000`.
@@ -36,7 +36,9 @@ Compact instructions for OpenCode sessions. Specs/plans (`docs/superpowers/{spec
 - **Element Plus is auto-imported** via `unplugin-vue-components` + `unplugin-auto-import` with `ElementPlusResolver({ styleExtension: "scss" })` in `vite.config.ts`. Never write `import { ElButton }` etc. in components. Icons (`@element-plus/icons-vue`) are **NOT** auto-imported — import them explicitly. Generated `frontend/auto-imports.d.ts` + `frontend/components.d.ts` are gitignored.
 - **`main.ts` registers Element Plus with zh-cn locale** (`import zhCn from "element-plus/es/locale/lang/zh-cn"`) — use the `es/` path, NOT `dist/locale/...` (EP 2.14 `dist/` has no `.d.ts`, `vue-tsc` fails with TS7016).
 - **`app = create_app()` runs at module import** and `Base.metadata.create_all` creates ALL tables (including `workflow_versions`) on first import. `storage/data/comfychat.db` is held under a Windows file lock while uvicorn runs. Use `git check-ignore -v storage/data/comfychat.db` (no probe) or `tmp_path` in tests. Don't `Out-File` the live `.db` (IOException).
-- **`start-dev.ps1` PID file lock.** If services were killed mid-run, `storage/tmp/.dev-pids.json` persists and the next start refuses. Delete the file or run `stop-dev.ps1` first.
+- **`start-dev.bat` PID file lock.** 如果上次启动后服务被杀,`storage/tmp/.dev-pids.json` 残留,下次 `start-dev.bat` 启动前会自动清理(由 `_job-helper.ps1 -Command PreFlight` 处理);也可用 `stop-dev.bat` 手动清理。
+- **`start-dev.bat` 用 Windows Job Object 收尸子进程。** `_job-helper.ps1` 创建带 `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` 的 Job,把 uvicorn 与 vite 收进去。`.bat` 以任意方式退出(Ctrl+C、点 X、`taskkill /F`、崩溃)→ 帮助器退出 → OS 关闭 Job → 子进程被 TerminateProcess。前端通过把 `npm.cmd` shim 放进 Job 让 `node.exe` 自动继承 Job(直接对 node 反查端口再 assign 会报 Access Denied)。
+- **端口由根 `.env` 覆盖。** `BACKEND_PORT`(默认 8000)与 `FRONTEND_PORT`(默认 5173)由 `_job-helper.ps1` 读取,并通过 PowerShell `$env:` 传给 vite。`frontend/vite.config.ts` 通过 `process.env` 拿值,改 `.env` 后重启 vite 生效。
 - Wrap `Start-Process` arguments as separate items (`-ArgumentList "-m","uvicorn","app.main:app","--port","8000"`), not one string, or PowerShell collapses them.
 - Frontend dev binds to `127.0.0.1` via `npm run dev -- --host 127.0.0.1` (run by `start-dev.ps1`). Without `--host`, vite binds to `localhost` (IPv6 often) and the proxy ready-check fails.
 - `test_check_database_returns_false_when_path_unwritable` fails on Windows — `os.chmod(0o500)` doesn't enforce NTFS ACLs. `@pytest.mark.skipif(sys.platform == "win32", ...)` is the documented fix; don't silently delete the test.
@@ -72,7 +74,7 @@ Compact instructions for OpenCode sessions. Specs/plans (`docs/superpowers/{spec
 
 - The user runs `superpowers` skills (`brainstorming` → `writing-plans` → `subagent-driven-development`) for any non-trivial work. Expect a planning + SDD loop before any code changes; don't jump straight into implementation.
 - **NEVER run resident/long-running tasks directly in a bash command** — `uvicorn`, `npm run dev`, `vite`, `node server.cjs`, `scripts\start-dev.ps1` (it blocks ~25 s waiting for readiness), etc. Running them directly hangs the tool call and makes the conversation appear stuck. Instead:
-  - To start/stop dev servers: tell the user to run `scripts\start-dev.ps1` / `stop-dev.ps1` in their own terminal, **or** launch the script itself detached via `Start-Process powershell -ArgumentList ... -WindowStyle Hidden` (capture its PID, don't wait on it). Do NOT call the script synchronously.
+  - To start/stop dev servers: tell the user to run `scripts\start-dev.bat` / `stop-dev.bat` in their own terminal, **or** launch the script itself detached via `Start-Process powershell -ArgumentList ... -WindowStyle Hidden` (capture its PID, don't wait on it). Do NOT call the script synchronously.
   - Short-lived checks only (e.g. a single `Invoke-WebRequest` to a health endpoint, a test run, a build) are fine, always with an explicit `timeout` on the tool call.
   - Always follow up a server-start with a text reply confirming the result, so the user is never left reading stale output.
 - For verifying a dev-server start, stop it immediately after the smoke check — don't leave ports 8000/5173 occupied.
