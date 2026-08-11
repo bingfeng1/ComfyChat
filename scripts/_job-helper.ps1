@@ -278,6 +278,83 @@ if ($Command -eq 'PreFlight') {
 }
 
 if ($Command -eq 'RunServersAndWait') {
-    Write-Host "RunServersAndWait not implemented yet" -ForegroundColor Yellow
+    $RepoRoot = (Resolve-Path $RepoRoot).Path
+    Set-Location $RepoRoot
+
+    $tmpDir = Join-Path $RepoRoot 'storage\tmp'
+    if (-not (Test-Path -LiteralPath $tmpDir)) {
+        New-Item -ItemType Directory -Force -Path $tmpDir | Out-Null
+    }
+    $pidFile = Join-Path $tmpDir '.dev-pids.json'
+    $backendOut = Join-Path $tmpDir 'backend.out.log'
+    $backendErr = Join-Path $tmpDir 'backend.err.log'
+    $frontendOut = Join-Path $tmpDir 'frontend.out.log'
+    $frontendErr = Join-Path $tmpDir 'frontend.err.log'
+
+    $backendPort = Get-BackendPort
+    $frontendPort = Get-FrontendPort
+    if ($backendPort -eq $frontendPort) {
+        throw "BACKEND_PORT ($backendPort) and FRONTEND_PORT ($frontendPort) must differ"
+    }
+
+    $job = New-KillOnCloseJob
+
+    # 1) Backend (uvicorn)
+    $backend = Start-Process `
+        -FilePath (Join-Path $RepoRoot 'backend\.venv\Scripts\python.exe') `
+        -ArgumentList '-m','uvicorn','app.main:app','--port',"$backendPort" `
+        -WorkingDirectory $RepoRoot `
+        -RedirectStandardOutput $backendOut `
+        -RedirectStandardError $backendErr `
+        -PassThru
+    Add-ToJob -Pid $backend.Id
+
+    # 2) Frontend (vite) — pass env vars so vite.config.ts reads them
+    $env:BACKEND_PORT = "$backendPort"
+    $env:FRONTEND_PORT = "$frontendPort"
+    $frontend = Start-Process `
+        -FilePath 'npm.cmd' `
+        -ArgumentList 'run','dev','--','--host','127.0.0.1','--port',"$frontendPort" `
+        -WorkingDirectory (Join-Path $RepoRoot 'frontend') `
+        -RedirectStandardOutput $frontendOut `
+        -RedirectStandardError $frontendErr `
+        -PassThru
+    # Do NOT Add-ToJob with $frontend.Id — npm.cmd is a shim; the real PID is the port owner.
+
+    # 3) Wait for readiness
+    $backendReady = Wait-HttpReady "http://127.0.0.1:$backendPort/health" $WaitSeconds
+    if (-not $backendReady) {
+        Write-Warning "backend not responding on :$backendPort/health after $WaitSeconds s"
+    }
+    $frontendReady = Wait-HttpReady "http://127.0.0.1:$frontendPort/" $WaitSeconds
+    if (-not $frontendReady) {
+        Write-Warning "frontend not responding on :$frontendPort/ after $WaitSeconds s"
+    }
+
+    # 4) Identify the actual vite/node PID via port lookup, add to job
+    $frontendPid = Get-PortOwnerPid $frontendPort
+    if ($frontendPid -gt 0) {
+        try {
+            Add-ToJob -Pid $frontendPid
+        } catch {
+            Write-Warning "could not add frontend PID $frontendPid to Job: $($_.Exception.Message)"
+        }
+    } else {
+        Write-Warning "could not identify frontend PID; will not be reaped"
+    }
+
+    # 5) Persist PID file
+    try {
+        Write-PidFile $pidFile @{
+            backend   = $backend.Id
+            frontend  = $frontendPid
+            startedAt = (Get-Date).ToString('o')
+        }
+    } catch {
+        Write-Warning "failed to write PID file: $($_.Exception.Message)"
+    }
+
+    # 6) Block until Job empty
+    $null = Wait-JobEmpty -TimeoutSeconds 0
     exit 0
 }
