@@ -160,24 +160,7 @@ def cancel(self, generation_id: str) -> Generation:
 
 **问题**：`_poll_once` 当前在 `get_history` 返回空 dict 时会把 `queued` 升级为 `running` 然后继续轮询。用户中止 + ComfyUI 把 prompt 从 history 清掉（版本差异存在）的边缘场景下，轮询死循环。
 
-**修复**：在 `_poll_once` 开头检查：
-
-```python
-# 中止兜底: gen 已 running 但连续 2 次 get_history 返回空 → mark_failed 退出
-if gen.status == "running":
-    history = self.comfyui.get_history(gen.prompt_id)
-    if not history:
-        if gen.error == "_poll_miss_once":  # 借 error 字段做计数标记
-            repo.mark_failed(gen.id, "生成结果丢失")
-            return True
-        # 第一次空: 升级标记后返回,下次仍空则失败
-        repo.update_error(gen.id, "_poll_miss_once")
-        return False
-    # 找到 entry: 清掉标记
-    repo.update_error(gen.id, None)
-```
-
-简化方案（推荐）：不引入 error 字段做计数，直接在 `Generation` 模型加 `poll_miss_count: int = 0` 字段（迁移见 §10）。`_poll_once` 开头：
+**修复**：在 `_poll_once` 开头检查 `gen.status == "running"` 时 `get_history` 是否返回空：
 
 ```python
 if gen.status == "running":
@@ -192,6 +175,8 @@ if gen.status == "running":
     if (gen.poll_miss_count or 0) > 0:
         repo.update_poll_miss_count(gen.id, 0)
 ```
+
+需要 `Generation.poll_miss_count` 列（迁移见 §10）做计数；找到 entry 时清零。
 
 ## 8. 后端:新增 cancel 路由
 
@@ -233,20 +218,53 @@ cancel: (id: string) => request<GenerationSummary>(`/generations/${id}/cancel`, 
 
 `Generation` 表新增列 `poll_miss_count INTEGER NOT NULL DEFAULT 0`。
 
-走 `backend/app/core/migrate.py` 的 `_ensure_column` 模式（见 AGENTS.md Quirks）：
+`backend/app/core/migrate.py` 扩展 `_ensure_column` 接受列类型 + 默认值（当前硬编码 `BOOLEAN NOT NULL DEFAULT 0`）：
 
 ```python
-_ensure_column("generations", "poll_miss_count", "INTEGER NOT NULL DEFAULT 0")
+def _ensure_column(
+    engine: Engine,
+    table: str,
+    column: str,
+    *,
+    col_type: str = "BOOLEAN",
+    default: str = "0",
+) -> None:
+    with engine.begin() as conn:
+        rows = conn.execute(text(f"PRAGMA table_info({table})")).fetchall()
+        names = {row[1] for row in rows}
+        if column in names:
+            return
+        conn.execute(
+            text(
+                f"ALTER TABLE {table} ADD COLUMN {column} "
+                f"{col_type} NOT NULL DEFAULT {default}"
+            )
+        )
 ```
 
-`GenerationRepository` 同步新增：
+`migrate()` 函数新增一行：
 
 ```python
-def update_poll_miss_count(self, gen_id: str, count: int) -> None:
-    self._touch(self.session.get(Generation, gen_id).poll_miss_count := count)  # noqa
+_ensure_column(engine, "generations", "poll_miss_count", col_type="INTEGER", default="0")
 ```
 
-实际写法按 repo 现有 pattern（参考 `update_status` / `update_error`）。
+`backend/app/models/generation.py` 新增列：
+
+```python
+poll_miss_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+```
+
+`backend/app/repositories/generation.py` 新增方法（沿用 `update_status` 模式）：
+
+```python
+def update_poll_miss_count(self, generation_id: str, count: int) -> None:
+    gen = self.get(generation_id)
+    if gen is None:
+        return
+    gen.poll_miss_count = count
+    gen.updated_at = _utcnow()
+    self.session.commit()
+```
 
 ## 11. 错误处理
 
