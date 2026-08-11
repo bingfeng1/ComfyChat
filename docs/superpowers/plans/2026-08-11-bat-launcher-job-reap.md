@@ -37,18 +37,22 @@
 
 ---
 
-## Task 1: `.env` 追加端口配置
+## Task 1: `.env.example` 追加端口配置(`.env` 是本地模板)
 
 **Files:**
-- Modify: `.env`(末尾追加)
+- Modify: `.env`(末尾追加,本地,gitignored)
+- Modify: `.env.example`(末尾追加,提交)
+- Create: nothing
 
 **Interfaces:**
 - Consumes: 无
-- Produces: 键 `BACKEND_PORT` / `FRONTEND_PORT`(可选,默认 8000 / 5173)
+- Produces: 键 `BACKEND_PORT` / `FRONTEND_PORT`(可选,默认 8000 / 5173),在 `.env.example` 中作为新开发者模板,在 `.env` 中作为本机当前模板
 
-- [ ] **Step 1: 编辑 `.env`,在末尾追加两行注释占位**
+> 注:仓库根 `.env` 已被 `.gitignore` 第 17 行忽略。`BACKEND_PORT` / `FRONTEND_PORT` 是非敏感配置样板,放在已跟踪的 `.env.example` 里,新 dev `cp .env.example .env` 后即得到带端口注释的本地配置。
 
-在 `.env` 文件最后追加(用 `read` 工具读后再 `edit`,或在文件末尾追加):
+- [ ] **Step 1: 编辑 `.env`,在末尾追加 4 行注释占位(本地)**
+
+在 `.env` 文件最后追加:
 
 ```
 # Dev ports (optional — read by start-dev.bat / vite.config.ts).
@@ -57,20 +61,36 @@
 # FRONTEND_PORT=5173
 ```
 
-- [ ] **Step 2: 验证 `.env` 的现有 5 个 `Settings` 字段未受影响**
+- [ ] **Step 2: 编辑 `.env.example`,在末尾追加同样的 4 行**
+
+在 `.env.example` 文件最后追加相同的 4 行:
+
+```
+# Dev ports (optional — read by start-dev.bat / vite.config.ts).
+# Defaults are 8000 and 5173; uncomment and edit to override.
+# BACKEND_PORT=8000
+# FRONTEND_PORT=5173
+```
+
+- [ ] **Step 3: 验证两个文件的现有 5 个 `Settings` 字段未受影响**
 
 Run:
 ```bash
 Get-Content .env
+Write-Host "---"
+Get-Content .env.example
 ```
-Expected: 仍包含 `COMFYUI_BASE_URL`、`DATABASE_URL`、`STORAGE_ROOT`、`COMFYUI_USERDATA_DIR` 四行(可能 `COMFYUI_API_KEY` 为空),且新增 4 行注释占位。
+Expected: 两个文件都仍包含 `COMFYUI_BASE_URL`、`DATABASE_URL`、`STORAGE_ROOT`、`COMFYUI_USERDATA_DIR`(`COMFYUI_API_KEY` 视情况空 / 占位),且新增 4 行注释占位。
 
-- [ ] **Step 3: 提交**
+- [ ] **Step 4: 仅提交 `.env.example`**
 
+Run:
 ```bash
-git add .env
-git commit -m "feat(scripts): add optional BACKEND_PORT / FRONTEND_PORT to .env"
+git add .env.example
+git commit -m "feat(scripts): add optional BACKEND_PORT / FRONTEND_PORT to .env.example"
 ```
+
+> `.env` 不 commit —— 它是本地配置,gitignored。
 
 ---
 
