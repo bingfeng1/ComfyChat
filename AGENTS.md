@@ -2,6 +2,10 @@
 
 Compact instructions for OpenCode sessions. Specs/plans (`docs/superpowers/{specs,plans}/`) are the source of truth for scope and design — read them before adding files or routes.
 
+## Branch workflow
+
+**Always create a new branch for changes.** Test through (以我为主) in the branch first, then merge to `main`. Never push untested changes to `main`.
+
 ## Layout
 
 - `backend/` — FastAPI + SQLAlchemy 2.x + SQLite. Editable install: `pip install -e "backend[dev]"`.
