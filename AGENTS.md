@@ -40,7 +40,7 @@ Compact instructions for OpenCode sessions. Specs/plans (`docs/superpowers/{spec
 - **`start-dev.bat` 用 Windows Job Object 收尸子进程。** `_job-helper.ps1` 创建带 `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` 的 Job,把 uvicorn 与 vite 收进去。`.bat` 以任意方式退出(Ctrl+C、点 X、`taskkill /F`、崩溃)→ 帮助器退出 → OS 关闭 Job → 子进程被 TerminateProcess。前端通过把 `npm.cmd` shim 放进 Job 让 `node.exe` 自动继承 Job(直接对 node 反查端口再 assign 会报 Access Denied)。
 - **端口由根 `.env` 覆盖。** `BACKEND_PORT`(默认 8000)与 `FRONTEND_PORT`(默认 5173)由 `_job-helper.ps1` 读取,并通过 PowerShell `$env:` 传给 vite。`frontend/vite.config.ts` 通过 `process.env` 拿值,改 `.env` 后重启 vite 生效。
 - Wrap `Start-Process` arguments as separate items (`-ArgumentList "-m","uvicorn","app.main:app","--port","8000"`), not one string, or PowerShell collapses them.
-- Frontend dev binds to `127.0.0.1` via `npm run dev -- --host 127.0.0.1` (run by `start-dev.ps1`). Without `--host`, vite binds to `localhost` (IPv6 often) and the proxy ready-check fails.
+- Frontend dev binds to `127.0.0.1` via `npm run dev -- --host 127.0.0.1` (run by `start-dev.bat`). Without `--host`, vite binds to `localhost` (IPv6 often) and the proxy ready-check fails.
 - `test_check_database_returns_false_when_path_unwritable` fails on Windows — `os.chmod(0o500)` doesn't enforce NTFS ACLs. `@pytest.mark.skipif(sys.platform == "win32", ...)` is the documented fix; don't silently delete the test.
 - `StarletteDeprecationWarning: Using httpx with starlette.testclient is deprecated; install httpx2 instead` — real upstream warning, not our code. Out of scope; track for next stage.
 - `Frontend/src` files may lack trailing newline at EOF (cosmetic).
@@ -73,7 +73,7 @@ Compact instructions for OpenCode sessions. Specs/plans (`docs/superpowers/{spec
 ## OpenCode / MCP
 
 - The user runs `superpowers` skills (`brainstorming` → `writing-plans` → `subagent-driven-development`) for any non-trivial work. Expect a planning + SDD loop before any code changes; don't jump straight into implementation.
-- **NEVER run resident/long-running tasks directly in a bash command** — `uvicorn`, `npm run dev`, `vite`, `node server.cjs`, `scripts\start-dev.ps1` (it blocks ~25 s waiting for readiness), etc. Running them directly hangs the tool call and makes the conversation appear stuck. Instead:
+- **NEVER run resident/long-running tasks directly in a bash command** — `uvicorn`, `npm run dev`, `vite`, `node server.cjs`, `scripts\start-dev.bat` (it blocks until the servers exit), etc. Running them directly hangs the tool call and makes the conversation appear stuck. Instead:
   - To start/stop dev servers: tell the user to run `scripts\start-dev.bat` / `stop-dev.bat` in their own terminal, **or** launch the script itself detached via `Start-Process powershell -ArgumentList ... -WindowStyle Hidden` (capture its PID, don't wait on it). Do NOT call the script synchronously.
   - Short-lived checks only (e.g. a single `Invoke-WebRequest` to a health endpoint, a test run, a build) are fine, always with an explicit `timeout` on the tool call.
   - Always follow up a server-start with a text reply confirming the result, so the user is never left reading stale output.
