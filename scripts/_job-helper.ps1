@@ -108,6 +108,133 @@ function Wait-HttpReady {
     return $false
 }
 
+# -------- Job Object (KILL_ON_JOB_CLOSE) --------
+
+if (-not ('DevJobObject' -as [type])) {
+    Add-Type -Namespace DevJobObject -Name Native -MemberDefinition @'
+        [StructLayout(LayoutKind.Sequential)]
+        public struct JOBOBJECT_BASIC_LIMIT_INFORMATION {
+            public long PerProcessUserTimeLimit;
+            public long PerJobUserTimeLimit;
+            public uint LimitFlags;
+            public UIntPtr MinimumWorkingSetSize;
+            public UIntPtr MaximumWorkingSetSize;
+            public uint ActiveProcessLimit;
+            public UIntPtr Affinity;
+            public uint PriorityClass;
+            public uint SchedulingClass;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct IO_COUNTERS {
+            public ulong ReadOperationCount;
+            public ulong WriteOperationCount;
+            public ulong OtherOperationCount;
+            public ulong ReadTransferCount;
+            public ulong WriteTransferCount;
+            public ulong OtherTransferCount;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct JOBOBJECT_EXTENDED_LIMIT_INFORMATION {
+            public JOBOBJECT_BASIC_LIMIT_INFORMATION BasicLimitInformation;
+            public IO_COUNTERS IoInfo;
+            public UIntPtr ProcessMemoryLimit;
+            public UIntPtr JobMemoryLimit;
+            public UIntPtr PeakProcessMemoryUsed;
+            public UIntPtr PeakJobMemoryUsed;
+        }
+
+        public const uint JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000;
+        public const uint JobObjectExtendedLimitInformation = 9;
+
+        [DllImport("kernel32.dll", CharSet=CharSet.Unicode)]
+        public static extern IntPtr CreateJobObject(IntPtr a, string n);
+
+        [DllImport("kernel32.dll", SetLastError=true)]
+        public static extern bool SetInformationJobObject(
+            IntPtr h, uint infoClass, IntPtr info, uint cb);
+
+        [DllImport("kernel32.dll", SetLastError=true)]
+        public static extern bool AssignProcessToJobObject(IntPtr h, IntPtr p);
+'@
+}
+
+$script:DevJob = [IntPtr]::Zero
+$script:DevJobPids = New-Object System.Collections.Generic.List[int]
+
+function New-KillOnCloseJob {
+    if ($script:DevJob -ne [IntPtr]::Zero) { return $script:DevJob }
+    $info = New-Object DevJobObject.Native+JOBOBJECT_EXTENDED_LIMIT_INFORMATION
+    $basic = $info.BasicLimitInformation
+    $basic.LimitFlags = [DevJobObject.Native]::JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+    $info.BasicLimitInformation = $basic
+    $size = [System.Runtime.InteropServices.Marshal]::SizeOf(
+        [type]'DevJobObject.Native+JOBOBJECT_EXTENDED_LIMIT_INFORMATION')
+    $ptr = [System.Runtime.InteropServices.Marshal]::AllocHGlobal($size)
+    try {
+        [System.Runtime.InteropServices.Marshal]::StructureToPtr($info, $ptr, $false)
+        $h = [DevJobObject.Native]::CreateJobObject([IntPtr]::Zero, $null)
+        if ($h -eq [IntPtr]::Zero) {
+            throw [System.ComponentModel.Win32Exception]::new(
+                [System.Runtime.InteropServices.Marshal]::GetLastWin32Error())
+        }
+        $ok = [DevJobObject.Native]::SetInformationJobObject(
+            $h,
+            [DevJobObject.Native]::JobObjectExtendedLimitInformation,
+            $ptr, $size)
+        if (-not $ok) {
+            throw [System.ComponentModel.Win32Exception]::new(
+                [System.Runtime.InteropServices.Marshal]::GetLastWin32Error())
+        }
+        $script:DevJob = $h
+        return $h
+    } finally {
+        [System.Runtime.InteropServices.Marshal]::FreeHGlobal($ptr)
+    }
+}
+
+function Add-ToJob {
+    param([Alias('Pid')][int]$ProcessId)
+    if ($script:DevJob -eq [IntPtr]::Zero) {
+        throw 'Job Object not initialized; call New-KillOnCloseJob first'
+    }
+    $proc = [System.Diagnostics.Process]::GetProcessById($ProcessId)
+    try {
+        $ok = [DevJobObject.Native]::AssignProcessToJobObject(
+            $script:DevJob, $proc.Handle)
+        if (-not $ok) {
+            throw [System.ComponentModel.Win32Exception]::new(
+                [System.Runtime.InteropServices.Marshal]::GetLastWin32Error())
+        }
+        if (-not $script:DevJobPids.Contains($ProcessId)) {
+            $script:DevJobPids.Add($ProcessId)
+        }
+    } finally {
+        $proc.Dispose()
+    }
+}
+
+function Wait-JobEmpty {
+    param([int]$TimeoutSeconds = 0)
+    if ($script:DevJobPids.Count -eq 0) { return $true }
+    $deadline = if ($TimeoutSeconds -gt 0) {
+        (Get-Date).AddSeconds($TimeoutSeconds)
+    } else { [DateTime]::MaxValue }
+    while ((Get-Date) -lt $deadline) {
+        $any = $false
+        foreach ($p in @($script:DevJobPids)) {
+            if (Get-Process -Id $p -ErrorAction SilentlyContinue) {
+                $any = $true
+                break
+            }
+        }
+        if (-not $any) { return $true }
+        Start-Sleep -Milliseconds 500
+    }
+    return $false
+}
+
 # -------- command dispatch --------
 
 if ($Command -eq 'Test') {
