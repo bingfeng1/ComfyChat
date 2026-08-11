@@ -5,6 +5,9 @@ import Components from "unplugin-vue-components/vite";
 import { ElementPlusResolver } from "unplugin-vue-components/resolvers";
 import { fileURLToPath, URL } from "node:url";
 
+const backendPort = process.env.BACKEND_PORT ?? "8000";
+const frontendPort = process.env.FRONTEND_PORT ?? "5173";
+
 export default defineConfig({
   plugins: [
     vue(),
@@ -17,10 +20,10 @@ export default defineConfig({
     },
   },
   server: {
-    port: 5173,
+    port: Number(frontendPort),
     proxy: {
       "/api": {
-        target: "http://127.0.0.1:8000",
+        target: `http://127.0.0.1:${backendPort}`,
         changeOrigin: true,
         rewrite: (p) => p.replace(/^\/api/, ""),
       },
