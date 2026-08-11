@@ -299,7 +299,8 @@ if ($Command -eq 'RunServersAndWait') {
 
     $job = New-KillOnCloseJob
 
-    # 1) Backend (uvicorn)
+    # 1) Backend (uvicorn) — python.exe main process goes into the Job. Its
+    #    workers (spawned by uvicorn) automatically inherit the Job.
     $backend = Start-Process `
         -FilePath (Join-Path $RepoRoot 'backend\.venv\Scripts\python.exe') `
         -ArgumentList '-m','uvicorn','app.main:app','--port',"$backendPort" `
@@ -309,7 +310,10 @@ if ($Command -eq 'RunServersAndWait') {
         -PassThru
     Add-ToJob -Pid $backend.Id
 
-    # 2) Frontend (vite) — pass env vars so vite.config.ts reads them
+    # 2) Frontend (vite) — pass env vars so vite.config.ts reads them.
+    #    npm.cmd is a cmd.exe shim; putting IT in the Job means the node.exe
+    #    it spawns inherits the Job automatically. Do NOT look up the port
+    #    owner and assign it directly — that path hits "access denied".
     $env:BACKEND_PORT = "$backendPort"
     $env:FRONTEND_PORT = "$frontendPort"
     $frontend = Start-Process `
@@ -319,7 +323,7 @@ if ($Command -eq 'RunServersAndWait') {
         -RedirectStandardOutput $frontendOut `
         -RedirectStandardError $frontendErr `
         -PassThru
-    # Do NOT Add-ToJob with $frontend.Id — npm.cmd is a shim; the real PID is the port owner.
+    Add-ToJob -Pid $frontend.Id
 
     # 3) Wait for readiness
     $backendReady = Wait-HttpReady "http://127.0.0.1:$backendPort/health" $WaitSeconds
@@ -331,30 +335,19 @@ if ($Command -eq 'RunServersAndWait') {
         Write-Warning "frontend not responding on :$frontendPort/ after $WaitSeconds s"
     }
 
-    # 4) Identify the actual vite/node PID via port lookup, add to job
-    $frontendPid = Get-PortOwnerPid $frontendPort
-    if ($frontendPid -gt 0) {
-        try {
-            Add-ToJob -Pid $frontendPid
-        } catch {
-            Write-Warning "could not add frontend PID $frontendPid to Job: $($_.Exception.Message)"
-        }
-    } else {
-        Write-Warning "could not identify frontend PID; will not be reaped"
-    }
-
-    # 5) Persist PID file
+    # 4) Persist PID file (frontend = npm.cmd shim PID; stop-dev taskkill /T
+    #    tree-kills it and node.exe together)
     try {
         Write-PidFile $pidFile @{
             backend   = $backend.Id
-            frontend  = $frontendPid
+            frontend  = $frontend.Id
             startedAt = (Get-Date).ToString('o')
         }
     } catch {
         Write-Warning "failed to write PID file: $($_.Exception.Message)"
     }
 
-    # 6) Block until Job empty
+    # 5) Block until Job empty
     $null = Wait-JobEmpty -TimeoutSeconds 0
     exit 0
 }
