@@ -701,16 +701,10 @@ git commit -m "feat(backend): POST /generations/{id}/cancel route"
 In `frontend/src/services/api.ts`, in the `generations:` object, after `create:` (lines 105-115) and before `remove:` (line 116), insert:
 
 ```ts
-    cancel: (id: string) => request<GenerationSummary>(`/generations/${id}/cancel`, { method: "POST" }),
-```
-
-(The existing `request` helper at line 40 returns the raw `Response`; here we wrap it. Actually re-check: `request` returns `Promise<Response>`, but the type annotation `Promise<GenerationSummary>` is wrong. Use the pattern that `create` uses — it returns `Promise<Response>` and callers do `res.json()`. Match that style.)
-
-Replace with:
-
-```ts
     cancel: (id: string) => request(`/generations/${id}/cancel`, { method: "POST" }),
 ```
+
+This matches the existing `create` pattern (returns `Promise<Response>`; callers do `res.json()` / check `res.ok`).
 
 - [ ] **Step 2: Typecheck**
 
