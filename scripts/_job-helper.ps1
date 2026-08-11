@@ -335,6 +335,15 @@ if ($Command -eq 'RunServersAndWait') {
         Write-Warning "frontend not responding on :$frontendPort/ after $WaitSeconds s"
     }
 
+    # 3b) Open the browser in the default app once the frontend is up
+    if ($frontendReady) {
+        try {
+            Start-Process "http://127.0.0.1:$frontendPort/"
+        } catch {
+            Write-Warning "failed to open browser: $($_.Exception.Message)"
+        }
+    }
+
     # 4) Persist PID file (frontend = npm.cmd shim PID; stop-dev taskkill /T
     #    tree-kills it and node.exe together)
     try {

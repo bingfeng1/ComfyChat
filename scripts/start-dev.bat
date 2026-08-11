@@ -9,12 +9,10 @@ pushd "%REPO_ROOT%" >nul
 set "REPO_ROOT=%CD%"
 popd >nul
 
-set "OPEN_BROWSER=0"
 set "WAIT_SECONDS=25"
 
 :parse_args
 if "%~1"=="" goto after_parse
-if /i "%~1"=="-OpenBrowser" set "OPEN_BROWSER=1" & shift & goto parse_args
 if /i "%~1"=="-WaitSeconds" (
     set "WAIT_SECONDS=%~2"
     shift
@@ -44,11 +42,5 @@ if errorlevel 1 exit /b 1
 echo ==^> Starting backend + frontend (Ctrl+C to stop)
 powershell -NoProfile -ExecutionPolicy Bypass -File "%REPO_ROOT%\scripts\_job-helper.ps1" -Command RunServersAndWait -RepoRoot "%REPO_ROOT%" -WaitSeconds %WAIT_SECONDS%
 if errorlevel 1 exit /b 1
-
-if "%OPEN_BROWSER%"=="1" (
-    for /f "usebackq tokens=*" %%B in (`powershell -NoProfile -Command "(Get-Content -LiteralPath '%REPO_ROOT%\.env' -ErrorAction SilentlyContinue | Select-String '^FRONTEND_PORT=' | Select-Object -First 1) -replace '^FRONTEND_PORT=', ''"`) do set "OPEN_PORT=%%B"
-    if not defined OPEN_PORT set "OPEN_PORT=5173"
-    start "" "http://127.0.0.1:%OPEN_PORT%/" >nul
-)
 
 endlocal

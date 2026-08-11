@@ -21,7 +21,7 @@ Compact instructions for OpenCode sessions. Specs/plans (`docs/superpowers/{spec
 
 ## Common commands (cwd = repo root)
 
-- Start both: `cmd /c scripts\start-dev.bat` (参数 `-OpenBrowser` 启动后开浏览器;`-WaitSeconds N` 改就绪等待超时,默认 25)。
+- Start both: `cmd /c scripts\start-dev.bat` (参数 `-WaitSeconds N` 改就绪等待超时,默认 25;前端就绪后自动打开默认浏览器)。
 - Stop both: `cmd /c scripts\stop-dev.bat`。
 - Backend tests: `backend\.venv\Scripts\python -m pytest backend/tests/<file> -v`. Target: 111 tests collected, 110 pass + 1 known Windows fail (see Quirks).
 - Full backend suite: `backend\.venv\Scripts\python -m pytest backend/tests -v`.
