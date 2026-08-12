@@ -58,10 +58,11 @@ const filteredItems = computed(() => {
   });
 });
 
-async function toggleLoraNsfw(row: LoraSummary) {
+async function toggleLoraNsfw(row: LoraSummary, targetValue?: boolean) {
+  const newValue = targetValue ?? !row.is_nsfw;
   try {
-    await api.loras.updateNsfw(row.name, !row.is_nsfw);
-    row.is_nsfw = !row.is_nsfw;
+    await api.loras.updateNsfw(row.name, newValue);
+    row.is_nsfw = newValue;
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err);
   }
@@ -146,17 +147,16 @@ onMounted(load);
           <span v-else class="cc-muted">—</span>
         </template>
       </el-table-column>
-      <el-table-column label="NSFW" width="100">
+      <el-table-column v-if="nsfwEnabled" label="NSFW" width="100">
         <template #default="{ row }">
-          <el-tag
-            :type="row.is_nsfw ? 'danger' : 'success'"
-            size="small"
-            :style="nsfwEnabled ? 'cursor: pointer' : ''"
-            :disable-transitions="true"
-            @click="nsfwEnabled && toggleLoraNsfw(row)"
-          >
-            {{ row.is_nsfw ? "NSFW" : "安全" }}
-          </el-tag>
+          <el-switch
+            :model-value="row.is_nsfw"
+            @update:model-value="(val: boolean | string | number) => toggleLoraNsfw(row, Boolean(val))"
+            inline-prompt
+            active-text="是"
+            inactive-text="否"
+            style="--el-switch-width: 56px"
+          />
         </template>
       </el-table-column>
       <el-table-column label="架构族" width="130">
