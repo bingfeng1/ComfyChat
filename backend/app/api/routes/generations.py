@@ -52,13 +52,15 @@ def list_generations(
     status: str | None = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(15, ge=1, le=100),
+    exclude_nsfw: bool = False,
     service: GenerationService = Depends(_service),
 ) -> GenerationListOut:
     service.reconcile()
     items = service.gen_repo.list(
-        status=status, page=page, page_size=page_size
+        status=status, page=page, page_size=page_size,
+        exclude_nsfw=exclude_nsfw,
     )
-    total = service.gen_repo.count(status=status)
+    total = service.gen_repo.count(status=status, exclude_nsfw=exclude_nsfw)
     return GenerationListOut(
         items=[GenerationOut.from_model(g) for g in items],
         total=total,

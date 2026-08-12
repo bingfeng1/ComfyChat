@@ -1,5 +1,6 @@
 import { onMounted, onUnmounted, ref, watch } from "vue";
 import { api } from "@/services/api";
+import { useNsfwFilter } from "@/composables/useNsfwFilter";
 import type { GenerationStatus, GenerationSummary } from "@/types/api";
 
 export function useGenerations() {
@@ -10,6 +11,7 @@ export function useGenerations() {
   const page = ref(1);
   const pageSize = ref(15);
   const total = ref(0);
+  const { enabled: nsfwEnabled } = useNsfwFilter();
   let timer: number | undefined;
 
   async function refresh(silent = false) {
@@ -20,6 +22,7 @@ export function useGenerations() {
         status: statusFilter.value || undefined,
         page: page.value,
         page_size: pageSize.value,
+        exclude_nsfw: !nsfwEnabled.value,
       });
       items.value = data.items;
       total.value = data.total;
@@ -36,6 +39,7 @@ export function useGenerations() {
         status: statusFilter.value || undefined,
         page: page.value,
         page_size: pageSize.value,
+        exclude_nsfw: !nsfwEnabled.value,
       });
       items.value = data.items;
       total.value = data.total;
@@ -76,6 +80,11 @@ export function useGenerations() {
   }
 
   watch(statusFilter, () => {
+    page.value = 1;
+    refresh();
+  });
+
+  watch(nsfwEnabled, () => {
     page.value = 1;
     refresh();
   });

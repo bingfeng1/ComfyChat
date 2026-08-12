@@ -4,10 +4,11 @@ import json
 from datetime import datetime, timezone
 from typing import Optional, Sequence
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, exists, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models.generation import Generation, WorkflowGenerationConfig
+from app.models.lora import Lora
 from app.models.workflow import Workflow
 
 
@@ -39,12 +40,32 @@ class GenerationRepository:
         self.session.refresh(gen)
         return gen
 
+    @staticmethod
+    def _nsfw_filter() -> tuple:
+        """Filter predicate for generations that used an NSFW-marked LoRA.
+
+        A generation "uses" an NSFW LoRA when parameters_json.lora_name
+        points at a loras row with is_nsfw=true, and it's actually applied
+        (strength_model missing or != 0). Returns (keep, exclude) SQL
+        fragments usable by both list() and count().
+        """
+        lora_name = func.json_extract(Generation.parameters_json, "$.lora_name")
+        strength = func.json_extract(Generation.parameters_json, "$.strength_model")
+        used_nsfw = and_(
+            Lora.name == lora_name,
+            Lora.is_nsfw.is_(True),
+            or_(strength.is_(None), strength != 0),
+        )
+        exclude = exists(select(1).where(used_nsfw)).correlate(Generation)
+        return ~exclude
+
     def list(
         self,
         status: Optional[str] = None,
         *,
         page: int = 1,
         page_size: int = 15,
+        exclude_nsfw: bool = False,
     ) -> Sequence[Generation]:
         if page < 1:
             page = 1
@@ -55,14 +76,18 @@ class GenerationRepository:
         stmt = select(Generation)
         if status:
             stmt = stmt.where(Generation.status == status)
+        if exclude_nsfw:
+            stmt = stmt.where(self._nsfw_filter())
         stmt = stmt.order_by(Generation.created_at.desc())
         stmt = stmt.offset((page - 1) * page_size).limit(page_size)
         return self.session.scalars(stmt).all()
 
-    def count(self, status: Optional[str] = None) -> int:
+    def count(self, status: Optional[str] = None, *, exclude_nsfw: bool = False) -> int:
         stmt = select(func.count()).select_from(Generation)
         if status:
             stmt = stmt.where(Generation.status == status)
+        if exclude_nsfw:
+            stmt = stmt.where(self._nsfw_filter())
         return int(self.session.scalar(stmt) or 0)
 
     def get(self, generation_id: str) -> Optional[Generation]:
