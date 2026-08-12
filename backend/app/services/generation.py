@@ -371,6 +371,23 @@ class GenerationService:
         else:
             yield self.gen_repo.session
 
+    def _prompt_in_queue(self, prompt_id: str) -> bool:
+        """prompt 是否还在 ComfyUI /queue(running 或 pending)中。
+
+        排队中/执行中的 prompt 在 /history 里看不到,但在 /queue 里有记录。
+        ComfyUI 查询异常时保守返回 True(当作还在队列,不误杀正在生成的),
+        由宽限期 + 连续 miss 兜底真正的丢失场景。
+        """
+        try:
+            queue = self.comfyui.get_queue()
+        except Exception:
+            return True
+        for bucket in ("queue_running", "queue_pending"):
+            for item in queue.get(bucket, []) or []:
+                if item and item[0] == prompt_id:
+                    return True
+        return False
+
     def _poll_once(self, session: Session, gen: Generation) -> bool:
         """查询一次 ComfyUI,返回 True 表示已到达终态。
 
@@ -396,6 +413,14 @@ class GenerationService:
             history = self.comfyui.get_history(gen.prompt_id)
             if not history:
                 if in_grace:
+                    return False
+                # ComfyUI /history 只含已开始/已完成的 prompt。排队中(前一个任务未跑完)
+                # 或执行中的 prompt 在 /history 里看不到,但会出现在 /queue(running/pending)。
+                # 只要 prompt 还在队列里,就绝不能算 miss —— 否则会误报「生成结果丢失」,
+                # 而 ComfyUI 其实还在正常生成。
+                if self._prompt_in_queue(gen.prompt_id):
+                    if (gen.poll_miss_count or 0) > 0:
+                        repo.update_poll_miss_count(gen.id, 0)
                     return False
                 miss = (gen.poll_miss_count or 0) + 1
                 if miss >= 2:

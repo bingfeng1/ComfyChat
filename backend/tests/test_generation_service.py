@@ -84,6 +84,7 @@ class FakeComfy:
     def __init__(self):
         self.submitted = None
         self.history = {}
+        self.queue = {"queue_running": [], "queue_pending": []}
 
     def submit_prompt(self, prompt):
         self.submitted = prompt
@@ -91,6 +92,9 @@ class FakeComfy:
 
     def get_history(self, prompt_id):
         return self.history
+
+    def get_queue(self):
+        return self.queue
 
     def get_image(self, filename, subfolder="", image_type="output"):
         return b"PNGDATA"
@@ -667,3 +671,70 @@ def test_poll_does_not_count_misses_during_grace_period(session, tmp_path):
     assert terminal is False
     assert got.status == "running"
     assert got.poll_miss_count == 0
+
+
+def test_poll_keeps_running_when_prompt_still_in_queue(session, tmp_path):
+    """ComfyUI /history 只含已开始/已完成的 prompt;还在 /queue 里等待的 prompt
+    (前一个任务没跑完)在 /history 里看不到。此时不能算 miss —— 否则排队中的
+    生成会被误标为「生成结果丢失」,而 ComfyUI 其实还在正常生成。
+
+    updated_at 回拨到宽限期外,确保是 /queue 检查(而非宽限期)在兜底。
+    """
+    settings = _settings(tmp_path)
+    comfy = FakeComfy()
+    comfy.history = {}
+    comfy.queue = {"queue_running": [], "queue_pending": [["p-1", 1, {"x": 1}]]}
+    svc = _service(session, settings, comfy)
+    repo = GenerationRepository(session)
+    gen = repo.create("wf1", "z-image", {}, "running", "p-1")
+    backdated = (datetime.now(timezone.utc) - timedelta(seconds=20)).isoformat()
+    gen.updated_at = backdated
+    session.commit()
+
+    terminal = svc._poll_once(repo.session, gen)
+
+    got = repo.get(gen.id)
+    assert terminal is False
+    assert got.status == "running"
+    assert got.poll_miss_count == 0
+
+
+def test_poll_keeps_running_when_prompt_is_currently_running_in_queue(session, tmp_path):
+    """prompt 正在 ComfyUI 执行中(/history 还没有 entry,但 /queue running 里有)。"""
+    settings = _settings(tmp_path)
+    comfy = FakeComfy()
+    comfy.history = {}
+    comfy.queue = {"queue_running": [["p-1", 1, {"x": 1}]], "queue_pending": []}
+    svc = _service(session, settings, comfy)
+    repo = GenerationRepository(session)
+    gen = repo.create("wf1", "z-image", {}, "running", "p-1")
+    backdated = (datetime.now(timezone.utc) - timedelta(seconds=20)).isoformat()
+    gen.updated_at = backdated
+    session.commit()
+
+    terminal = svc._poll_once(repo.session, gen)
+
+    got = repo.get(gen.id)
+    assert terminal is False
+    assert got.status == "running"
+    assert got.poll_miss_count == 0
+
+
+def test_poll_marks_failed_when_prompt_in_neither_queue_nor_history(session, tmp_path):
+    """真正丢失:prompt 既不在 /history 也不在 /queue —— 连续 2 次才标失败。"""
+    settings = _settings(tmp_path)
+    comfy = FakeComfy()
+    comfy.history = {}
+    comfy.queue = {"queue_running": [], "queue_pending": []}
+    svc = _service(session, settings, comfy)
+    repo = GenerationRepository(session)
+    gen = repo.create("wf1", "z-image", {}, "running", "p-1")
+    backdated = (datetime.now(timezone.utc) - timedelta(seconds=20)).isoformat()
+    gen.updated_at = backdated
+    session.commit()
+
+    svc.poll_until_done(gen.id, poll_interval=0.0)
+
+    got = repo.get(gen.id)
+    assert got.status == "failed"
+    assert "生成结果丢失" in (got.error or "")
