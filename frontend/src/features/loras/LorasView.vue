@@ -124,6 +124,18 @@ onMounted(load);
     </div>
 
     <el-table :data="filteredItems" v-loading="loading" stripe style="width: 100%">
+      <el-table-column v-if="nsfwEnabled" label="NSFW" width="100">
+        <template #default="{ row }">
+          <el-switch
+            :model-value="row.is_nsfw"
+            @update:model-value="(val: boolean | string | number) => toggleLoraNsfw(row, Boolean(val))"
+            inline-prompt
+            active-text="是"
+            inactive-text="否"
+            style="--el-switch-width: 56px"
+          />
+        </template>
+      </el-table-column>
       <el-table-column label="文件名" min-width="280">
         <template #default="{ row }">
           <span :class="['cc-name', { 'cc-deleted-name': row.deleted_from_comfyui }]">
@@ -145,18 +157,6 @@ onMounted(load);
             </el-tag>
           </template>
           <span v-else class="cc-muted">—</span>
-        </template>
-      </el-table-column>
-      <el-table-column v-if="nsfwEnabled" label="NSFW" width="100">
-        <template #default="{ row }">
-          <el-switch
-            :model-value="row.is_nsfw"
-            @update:model-value="(val: boolean | string | number) => toggleLoraNsfw(row, Boolean(val))"
-            inline-prompt
-            active-text="是"
-            inactive-text="否"
-            style="--el-switch-width: 56px"
-          />
         </template>
       </el-table-column>
       <el-table-column label="架构族" width="130">
