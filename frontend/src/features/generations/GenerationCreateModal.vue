@@ -218,9 +218,14 @@ function isLoraField(f: GenerationField): boolean {
 
 function loraOptions(f: GenerationField): string[] {
   if (!isLoraField(f)) return f.options ?? [];
-  const all = f.options ?? [];
-  // 先按 NSFW 过滤
-  const nsfwFiltered = nsfwEnabled.value ? all : all.filter((name) => {
+  // 候选源: DB 里活跃的 LoRA(`deleted_from_comfyui=false`)。
+  // 不要用 f.options —— 那是工作流配置保存时的快照,之后新装的 LoRA 不在里面。
+  // DB sync 会保持 loras.value 与 ComfyUI 实际安装列表一致,这里不需要二次过滤。
+  const candidates = loras.value
+    .filter((l) => !l.deleted_from_comfyui)
+    .map((l) => l.name);
+  // NSFW 过滤
+  const nsfwFiltered = nsfwEnabled.value ? candidates : candidates.filter((name) => {
     const lora = loras.value.find((l) => l.name === name);
     return lora && !lora.is_nsfw;
   });
