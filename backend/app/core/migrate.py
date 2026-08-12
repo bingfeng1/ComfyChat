@@ -11,6 +11,7 @@ def migrate(engine: Engine) -> None:
     检测缺失列并 ALTER。已存在列时跳过,可重复执行。
     """
     _ensure_column(engine, "loras", "deleted_from_comfyui")
+    _ensure_column(engine, "loras", "is_nsfw")
     _ensure_column(
         engine,
         "generations",
