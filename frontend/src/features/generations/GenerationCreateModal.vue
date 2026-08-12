@@ -281,7 +281,7 @@ function paramDisplay(f: GenerationField): string {
 <template>
   <Modal
     :title="props.preset ? '再生成' : '新建生成'"
-    width="640px"
+    width="1200px"
     @close="emit('close')"
   >
     <div v-if="loading" class="cc-loading">
@@ -304,8 +304,9 @@ function paramDisplay(f: GenerationField): string {
       </p>
     </div>
 
-    <div v-else>
-      <div class="cc-step-header">
+    <div v-else class="cc-modal-body">
+      <div class="cc-modal-left">
+        <div class="cc-step-header">
         第 {{ step }} 步 / 共 {{ totalSteps }} 步 — {{ stepTitle }}
       </div>
 
@@ -468,12 +469,26 @@ function paramDisplay(f: GenerationField): string {
       </div>
 
       <el-alert
-        v-if="submitError"
-        :title="submitError"
-        type="error"
-        :closable="false"
-        show-icon
-      />
+          v-if="submitError"
+          :title="submitError"
+          type="error"
+          :closable="false"
+          show-icon
+        />
+      </div>
+
+      <div class="cc-modal-divider"></div>
+
+      <div class="cc-modal-right">
+        <div class="cc-image-panel">
+          <div class="cc-image-main">
+            <div class="cc-image-empty">
+              <span class="cc-image-empty-icon">🖼</span>
+              <p>点击「生成」开始</p>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <template #footer>
@@ -580,5 +595,59 @@ function paramDisplay(f: GenerationField): string {
 }
 .cc-lora-toggle {
   margin-bottom: 0.25rem;
+}
+.cc-modal-body {
+  display: flex;
+  gap: 24px;
+  min-height: 400px;
+}
+.cc-modal-left {
+  width: 480px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.cc-modal-divider {
+  width: 1px;
+  background: #e2e8f0;
+  flex-shrink: 0;
+}
+.cc-modal-right {
+  flex: 1;
+  min-width: 400px;
+  display: flex;
+  flex-direction: column;
+}
+.cc-image-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+}
+.cc-image-main {
+  flex: 1;
+  background: #f8fafc;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  min-height: 360px;
+}
+.cc-image-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  color: #94a3b8;
+}
+.cc-image-empty-icon {
+  font-size: 3rem;
+  opacity: 0.6;
+}
+.cc-image-empty p {
+  margin: 0;
+  font-size: 0.9rem;
 }
 </style>
