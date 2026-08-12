@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { Loading } from "@element-plus/icons-vue";
 import Modal from "@/components/Modal.vue";
 import { api } from "@/services/api";
-import type { GenerationConfigSummary, GenerationField, GenerationSummary } from "@/types/api";
+import type { GenerationConfigSummary, GenerationField, GenerationStatus, GenerationSummary } from "@/types/api";
 import type { LoraSummary } from "@/types/api";
 
 const props = defineProps<{
@@ -21,6 +22,12 @@ const values = ref<Record<string, string | number>>({});
 const randomFlags = ref<Record<string, boolean>>({});
 const submitting = ref(false);
 const submitError = ref<string | null>(null);
+const activeGenId = ref<string | null>(null);
+const activeStatus = ref<GenerationStatus | null>(null);
+const activeError = ref<string | null>(null);
+const mainImageUrl = ref<string | null>(null);
+const history = ref<Array<{ id: string; imageUrl: string }>>([]);
+let pollTimer: number | undefined;
 const step = ref(1);
 
 const currentConfig = computed(
@@ -176,6 +183,10 @@ onMounted(async () => {
   }
 });
 
+onUnmounted(() => {
+  stopPolling();
+});
+
 function selectWorkflow(id: string) {
   workflowId.value = id;
   values.value = {};
@@ -258,13 +269,57 @@ async function submit() {
         if (isSeed) parameters[`${f.key}_random`] = false;
       }
     }
-    await api.generations.create({ workflow_id: workflowId.value, parameters });
-    emit("generated");
-    emit("close");
+    const res = await api.generations.create({ workflow_id: workflowId.value, parameters });
+    if (res.status !== 201) {
+      const data = await res.json().catch(() => null);
+      throw new Error(data?.detail ?? `创建失败:${res.status}`);
+    }
+    const gen = (await res.json()) as GenerationSummary;
+    activeGenId.value = gen.id;
+    activeStatus.value = gen.status;
+    activeError.value = null;
+    mainImageUrl.value = null;
+    emit("generated");  // 通知父级刷新列表;不 emit close,弹窗保持打开
+    startPolling();
   } catch (err) {
     submitError.value = err instanceof Error ? err.message : String(err);
   } finally {
     submitting.value = false;
+  }
+}
+
+function startPolling() {
+  stopPolling();
+  pollTimer = window.setInterval(pollOnce, 2000);
+  pollOnce();
+}
+
+function stopPolling() {
+  if (pollTimer !== undefined) {
+    window.clearInterval(pollTimer);
+    pollTimer = undefined;
+  }
+}
+
+async function pollOnce() {
+  if (!activeGenId.value) return;
+  try {
+    const gen = await api.generations.get(activeGenId.value);
+    activeStatus.value = gen.status;
+    activeError.value = gen.error;
+    if (gen.status === "success" && gen.outputs.length > 0) {
+      const filename = gen.outputs[0];
+      mainImageUrl.value = api.generations.imageUrl(gen.id, filename);
+      // 入栈历史(去重 + 最新在左)
+      if (!history.value.some((h) => h.id === gen.id)) {
+        history.value = [{ id: gen.id, imageUrl: mainImageUrl.value }, ...history.value];
+      }
+      stopPolling();
+    } else if (gen.status === "failed") {
+      stopPolling();
+    }
+  } catch {
+    /* 单次失败静默忽略 */
   }
 }
 
@@ -482,10 +537,28 @@ function paramDisplay(f: GenerationField): string {
       <div class="cc-modal-right">
         <div class="cc-image-panel">
           <div class="cc-image-main">
-            <div class="cc-image-empty">
+            <el-icon v-if="activeGenId && (activeStatus === 'queued' || activeStatus === 'running')" class="is-loading cc-image-loading">
+              <Loading />
+            </el-icon>
+            <img v-else-if="mainImageUrl" :src="mainImageUrl" alt="生成结果" class="cc-image-main-img" />
+            <div v-else-if="activeGenId && activeStatus === 'failed' && activeError === '用户中止'" class="cc-image-cancelled">
+              <span class="cc-image-cancelled-icon">⏹</span>
+              <p>已中止</p>
+            </div>
+            <div v-else-if="activeGenId && activeStatus === 'failed'" class="cc-image-error">
+              <p>{{ activeError || '生成失败' }}</p>
+            </div>
+            <div v-else class="cc-image-empty">
               <span class="cc-image-empty-icon">🖼</span>
               <p>点击「生成」开始</p>
             </div>
+          </div>
+          <div v-if="activeGenId" class="cc-image-status">
+            <span v-if="activeStatus === 'queued'">排期中…</span>
+            <span v-else-if="activeStatus === 'running'">生成中…</span>
+            <span v-else-if="activeStatus === 'success'">完成</span>
+            <span v-else-if="activeStatus === 'failed' && activeError === '用户中止'">已中止</span>
+            <span v-else-if="activeStatus === 'failed'">失败</span>
           </div>
         </div>
       </div>
@@ -649,5 +722,36 @@ function paramDisplay(f: GenerationField): string {
 .cc-image-empty p {
   margin: 0;
   font-size: 0.9rem;
+}
+.cc-image-loading {
+  font-size: 3rem;
+  color: #0ea5e9;
+}
+.cc-image-main-img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+.cc-image-cancelled,
+.cc-image-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  color: #64748b;
+  padding: 1rem;
+  text-align: center;
+}
+.cc-image-cancelled-icon {
+  font-size: 3rem;
+  opacity: 0.6;
+}
+.cc-image-error {
+  color: #ef4444;
+}
+.cc-image-status {
+  font-size: 0.85rem;
+  color: #475569;
+  flex-shrink: 0;
 }
 </style>
