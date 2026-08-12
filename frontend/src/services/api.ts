@@ -120,5 +120,11 @@ export const api = {
   },
   loras: {
     list: () => get<LoraList>("/lora"),
+    updateNsfw: (name: string, isNsfw: boolean) =>
+      request(`/lora/${encodeURIComponent(name)}/nsfw`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ is_nsfw: isNsfw }),
+      }),
   },
 };
