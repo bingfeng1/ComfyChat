@@ -118,6 +118,7 @@ export interface LoraSummary {
   models: string[];
   deleted_from_comfyui: boolean;
   is_new: boolean;
+  is_nsfw: boolean;
 }
 
 export interface LoraList {
