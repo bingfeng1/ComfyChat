@@ -20,6 +20,7 @@ class Lora(Base):
     source_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     trigger_words: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     deleted_from_comfyui: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    is_nsfw: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     updated_at: Mapped[str] = mapped_column(String(40), nullable=False, default=_utcnow)
 
 
