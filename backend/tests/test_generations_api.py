@@ -151,6 +151,8 @@ def test_cancel_marks_failed_and_returns_200(tmp_path, monkeypatch):
 
     for name in ("submit_prompt", "get_history", "interrupt", "delete_queued"):
         monkeypatch.setattr(ComfyUIClient, name, getattr(FakeComfy, name))
+    # Stub poll_until_done: Task 4's miss-counter would otherwise flip this
+    # gen to failed/生成结果丢失 before cancel asserts.
     monkeypatch.setattr(GenerationService, "poll_until_done", lambda self, generation_id: None)
 
     gen = client.post("/generations", json={
