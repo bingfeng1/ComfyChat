@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
@@ -123,8 +122,6 @@ def delete_generation(
     gen = service.gen_repo.get(generation_id)
     if gen is None:
         raise HTTPException(status_code=404, detail="Generation not found")
-    out_dir = service.outputs_dir(gen)
-    if out_dir.exists():
-        shutil.rmtree(out_dir)
+    service._delete_outputs(gen)
     service.gen_repo.delete(generation_id)
     return Response(status_code=204)

@@ -124,7 +124,18 @@ def test_outputs_dir_uses_year_month(session, tmp_path):
         status="queued", prompt_id="p1", created_at="2026-08-09T12:00:00+00:00",
     )
     d = svc.outputs_dir(gen)
-    assert d == settings.storage_root / "outputs" / "2026-08" / gen.id
+    assert d == settings.storage_root / "outputs" / "2026-08"
+
+
+def test_outputs_dir_falls_back_for_empty_created_at(session, tmp_path):
+    settings = _settings(tmp_path)
+    svc = _service(session, settings, FakeComfy())
+    gen = Generation(
+        workflow_id="wf1", workflow_name="z-image", parameters_json="{}",
+        status="queued", prompt_id="p1",
+    )
+    d = svc.outputs_dir(gen)
+    assert d == settings.storage_root / "outputs" / "unknown"
 
 
 def test_poll_downloads_images_and_succeeds(session, tmp_path):
@@ -146,6 +157,40 @@ def test_poll_downloads_images_and_succeeds(session, tmp_path):
     assert got.status == "success"
     assert json.loads(got.outputs_json) == ["out.png"]
     assert (svc.outputs_dir(gen) / "out.png").read_bytes() == b"PNGDATA"
+
+
+def test_dedup_target_appends_suffix_on_collision(session, tmp_path):
+    settings = _settings(tmp_path)
+    svc = _service(session, settings, FakeComfy())
+    out_dir = settings.storage_root / "outputs" / "2026-08"
+    out_dir.mkdir(parents=True)
+    (out_dir / "a.png").write_bytes(b"x")
+    first = svc._dedup_target(out_dir, "a.png")
+    assert first.name == "a_1.png"
+    first.write_bytes(b"y")
+    second = svc._dedup_target(out_dir, "a.png")
+    assert second.name == "a_2.png"
+
+
+def test_delete_outputs_only_removes_own_files(session, tmp_path):
+    """平铺布局下,删除一条生成记录不能误删同月其他 generation 的文件。"""
+    settings = _settings(tmp_path)
+    svc = _service(session, settings, FakeComfy())
+    repo = GenerationRepository(session)
+    g1 = repo.create("wf1", "z-image", {}, "success", "p-1")
+    g2 = repo.create("wf1", "z-image", {}, "success", "p-2")
+    # 两条记录都指向 outputs/{YYYY-MM}/ (同月)
+    out_dir = svc.outputs_dir(g1)
+    out_dir.mkdir(parents=True)
+    (out_dir / "mine.png").write_bytes(b"1")
+    (out_dir / "others.png").write_bytes(b"2")
+    repo.update_success(g1.id, ["mine.png"])
+    repo.update_success(g2.id, ["others.png"])
+
+    svc._delete_outputs(g1)
+
+    assert not (out_dir / "mine.png").exists()
+    assert (out_dir / "others.png").exists()
 
 
 def test_poll_marks_failed_on_error(session, tmp_path):
