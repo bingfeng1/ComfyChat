@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
-import { Loading } from "@element-plus/icons-vue";
+import { CircleClose, Loading } from "@element-plus/icons-vue";
 import Modal from "@/components/Modal.vue";
 import { api } from "@/services/api";
 import type { GenerationConfigSummary, GenerationField, GenerationStatus, GenerationSummary } from "@/types/api";
@@ -323,6 +323,32 @@ async function pollOnce() {
   }
 }
 
+const aborting = ref(false);
+const abortError = ref<string | null>(null);
+
+async function abort() {
+  if (!activeGenId.value || aborting.value) return;
+  aborting.value = true;
+  abortError.value = null;
+  const genId = activeGenId.value;
+  try {
+    const res = await api.generations.cancel(genId);
+    if (!res.ok) {
+      const data = await res.json().catch(() => null);
+      throw new Error(data?.detail ?? `中止失败:${res.status}`);
+    }
+    // 后端会写 failed=用户中止,下一轮 pollOnce 命中即停止 + 显示「已中止」
+  } catch (err) {
+    abortError.value = err instanceof Error ? err.message : String(err);
+  } finally {
+    aborting.value = false;
+  }
+}
+
+function showThumbnail(url: string) {
+  mainImageUrl.value = url;
+}
+
 function paramDisplay(f: GenerationField): string {
   const isSeed = f.type === "seed";
   const isRandom = isSeed && randomFlags.value[`${f.key}_random`];
@@ -530,6 +556,13 @@ function paramDisplay(f: GenerationField): string {
           :closable="false"
           show-icon
         />
+        <el-alert
+          v-if="abortError"
+          :title="abortError"
+          type="error"
+          :closable="false"
+          show-icon
+        />
       </div>
 
       <div class="cc-modal-divider"></div>
@@ -560,6 +593,17 @@ function paramDisplay(f: GenerationField): string {
             <span v-else-if="activeStatus === 'failed' && activeError === '用户中止'">已中止</span>
             <span v-else-if="activeStatus === 'failed'">失败</span>
           </div>
+          <div v-if="history.length > 0" class="cc-image-history">
+            <div
+              v-for="(item, idx) in history"
+              :key="item.id"
+              class="cc-image-thumb"
+              :class="{ 'is-active': mainImageUrl === item.imageUrl }"
+              @click="showThumbnail(item.imageUrl)"
+            >
+              <img :src="item.imageUrl" :alt="`结果 ${idx + 1}`" />
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -577,6 +621,16 @@ function paramDisplay(f: GenerationField): string {
           :disabled="!canProceed"
           @click="next"
         >下一步</el-button>
+        <el-button
+          v-if="activeGenId && (activeStatus === 'queued' || activeStatus === 'running')"
+          type="danger"
+          plain
+          :loading="aborting"
+          @click="abort"
+        >
+          <el-icon style="margin-right: 4px"><CircleClose /></el-icon>
+          中止
+        </el-button>
         <el-button
           v-else
           type="primary"
@@ -753,5 +807,35 @@ function paramDisplay(f: GenerationField): string {
   font-size: 0.85rem;
   color: #475569;
   flex-shrink: 0;
+}
+.cc-image-history {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  flex-shrink: 0;
+  padding: 4px 0;
+}
+.cc-image-thumb {
+  width: 80px;
+  height: 80px;
+  border-radius: 6px;
+  overflow: hidden;
+  cursor: pointer;
+  flex-shrink: 0;
+  border: 2px solid transparent;
+  transition: transform 0.15s;
+}
+.cc-image-thumb:hover {
+  transform: scale(1.05);
+}
+.cc-image-thumb.is-active {
+  border-color: var(--el-color-primary);
+  box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.2);
+}
+.cc-image-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 </style>
