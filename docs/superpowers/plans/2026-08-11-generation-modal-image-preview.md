@@ -1131,9 +1131,9 @@ function showThumbnail(url: string) {
 
 - [ ] **Step 2: Add abort button to footer + thumbnail row to right panel**
 
-In the existing `<template #footer>` block (lines 479-499), find the `<el-button v-else type="primary" :loading="submitting" @click="submit">生成</el-button>` line (last button, line ~497) and add an abort button **before** it (or after — pick after for natural reading order):
+In the existing `<template #footer>` block (lines 479-499), find the `<el-button v-else type="primary" :loading="submitting" @click="submit">生成</el-button>` line (last button, line ~497). The abort button must be its **v-if** sibling — Vue requires v-if/v-else adjacency, so insert abort **before** 生成 in source order (the visible button order in the rendered footer is reversed by flex layout if desired, but the source order must be `abort (v-if)` then `生成 (v-else)`):
 
-After the existing 「生成」 button, insert:
+Replace the existing 「生成」 button line with the abort + 生成 pair (abort first, then 生成 with `v-else`):
 
 ```html
         <el-button
