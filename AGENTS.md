@@ -27,7 +27,7 @@ Compact instructions for OpenCode sessions. Specs/plans (`docs/superpowers/{spec
 
 - Start both: `cmd /c scripts\start-dev.bat` (参数 `-WaitSeconds N` 改就绪等待超时,默认 25;前端就绪后自动打开默认浏览器)。
 - Stop both: `cmd /c scripts\stop-dev.bat`。
-- Backend tests: `backend\.venv\Scripts\python -m pytest backend/tests/<file> -v`. Target: 111 tests collected, 110 pass + 1 known Windows fail (see Quirks).
+- Backend tests: `backend\.venv\Scripts\python -m pytest backend/tests/<file> -v`. Target: 146 tests collected, 145 pass + 1 known Windows fail (`test_check_database_returns_false_when_path_unwritable` — see Quirks).
 - Full backend suite: `backend\.venv\Scripts\python -m pytest backend/tests -v`.
 - Backend dev alone: `backend\.venv\Scripts\python -m uvicorn app.main:app --port 8000`.
 - Frontend typecheck: `npm --prefix frontend run typecheck`.
@@ -42,6 +42,7 @@ Compact instructions for OpenCode sessions. Specs/plans (`docs/superpowers/{spec
 - **`app = create_app()` runs at module import** and `Base.metadata.create_all` creates ALL tables (including `workflow_versions`) on first import. `storage/data/comfychat.db` is held under a Windows file lock while uvicorn runs. Use `git check-ignore -v storage/data/comfychat.db` (no probe) or `tmp_path` in tests. Don't `Out-File` the live `.db` (IOException).
 - **`start-dev.bat` PID file lock.** 如果上次启动后服务被杀,`storage/tmp/.dev-pids.json` 残留,下次 `start-dev.bat` 启动前会自动清理(由 `_job-helper.ps1 -Command PreFlight` 处理);也可用 `stop-dev.bat` 手动清理。
 - **`start-dev.bat` 用 Windows Job Object 收尸子进程。** `_job-helper.ps1` 创建带 `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` 的 Job,把 uvicorn 与 vite 收进去。`.bat` 以任意方式退出(Ctrl+C、点 X、`taskkill /F`、崩溃)→ 帮助器退出 → OS 关闭 Job → 子进程被 TerminateProcess。前端通过把 `npm.cmd` shim 放进 Job 让 `node.exe` 自动继承 Job(直接对 node 反查端口再 assign 会报 Access Denied)。
+- **`start-dev.bat` 自动拉起 ComfyUI。** PreFlight 先 `GET COMFYUI_BASE_URL`(默认 `http://127.0.0.1:8188`)探活,失败时从 `COMFYUI_USERDATA_DIR` 向上 4 层找 `ComfyUI\main.py` 定位 portable 根目录,然后 `Start-Process` 跑 `run_nvidia_gpu_manager.bat`(回退 `run_nvidia_gpu.bat`),最多等 60 s。任一变量缺失就只警告不启动,ComfyUI 仍不可达 → `/api/lora` 等同步接口报 503。
 - **端口由根 `.env` 覆盖。** `BACKEND_PORT`(默认 8000)与 `FRONTEND_PORT`(默认 5173)由 `_job-helper.ps1` 读取,并通过 PowerShell `$env:` 传给 vite。`frontend/vite.config.ts` 通过 `process.env` 拿值,改 `.env` 后重启 vite 生效。
 - Wrap `Start-Process` arguments as separate items (`-ArgumentList "-m","uvicorn","app.main:app","--port","8000"`), not one string, or PowerShell collapses them.
 - Frontend dev binds to `127.0.0.1` via `npm run dev -- --host 127.0.0.1` (run by `start-dev.bat`). Without `--host`, vite binds to `localhost` (IPv6 often) and the proxy ready-check fails.
@@ -49,13 +50,14 @@ Compact instructions for OpenCode sessions. Specs/plans (`docs/superpowers/{spec
 - `StarletteDeprecationWarning: Using httpx with starlette.testclient is deprecated; install httpx2 instead` — real upstream warning, not our code. Out of scope; track for next stage.
 - `Frontend/src` files may lack trailing newline at EOF (cosmetic).
 - **Element Plus main chunk is ~1 MB / 346 KB gzip** — Vite warns about chunk size; not a blocker, code-splitting deferred.
+- **Markdown files served from `frontend/public/` (e.g. `docs/lora-ai-binding-guide.md`) must be UTF-8 with BOM.** Vite dev server serves `.md` without a `charset=utf-8` Content-Type; without BOM, browser / VS Code fall back to system default encoding and Chinese shows as 乱码. PowerShell 5.1's `Get-Content` decodes UTF-8 bytes as system ANSI — corrupting content if re-encoded via `WriteAllText` / `Set-Content`. To safely add BOM, manipulate raw bytes: `[System.IO.File]::ReadAllBytes` → prepend `0xEF,0xBB,0xBF` → `[System.IO.File]::WriteAllBytes`.
 
 ## Conventions
 
 - `frontend/vite.config.ts` uses `import.meta.url` + `fileURLToPath(new URL(...))`, **not `__dirname`** (ESM-portable; Vite 5+ official pattern). Don't "fix" it back.
 - TypeScript paths: `@/*` → `src/*` mirrored in both `tsconfig.json` and `vite.config.ts` alias.
 - Backend is installed editable; `app.*` is importable globally, so pytest runs from the repo root without `cd backend`.
-- `Settings` uses `pydantic-settings` with `extra="ignore"` and reads `.env` (CWD). Five fields: `comfyui_base_url`, `comfyui_api_key`, `database_url`, `storage_root`, `comfyui_userdata_dir`. Add new fields with defaults; never break the existing five.
+- `Settings` uses `pydantic-settings` with `extra="ignore"` and reads `.env` (CWD). Six fields: `comfyui_base_url`, `comfyui_api_key`, `database_url`, `storage_root`, `comfyui_userdata_dir`, `comfyui_loras_dir`. Add new fields with defaults; never break the existing six. **Note:** `backend/.env.example` is stale (missing `BACKEND_PORT`, `FRONTEND_PORT`, `comfyui_loras_dir`) — copy + extend, don't blindly trust it.
 - Backend uses module-level singletons (`app.core.database`) with `reset_for_tests()` for isolation. Prefer `tmp_path` over real paths in tests.
 - Per-request DB session via `get_db_session` (in `app.api.deps`) — used by `Depends(get_db_session)` in routers. Don't share a session across requests.
 - `app.state.services` holds module singletons + instances (asymmetric by design): `"database"` is the module, `"comfyui"` + `"workflow_repo"` + `"workflow_service"` are instances. Don't "normalize" without a plan.
@@ -67,12 +69,13 @@ Compact instructions for OpenCode sessions. Specs/plans (`docs/superpowers/{spec
   - `Workflow.body` is **UI-format** (`{"nodes":[{id,type,inputs,widgets_values,links}], "links":[...]}`), NOT the API format ComfyUI `/prompt` needs. `workflow_to_api_template(body, object_info)` converts UI→API: widgets from `widgets_values` (positionally aligned to `inputs[]` entries with `widget`), **link inputs resolved to `["<from_node_id>", from_slot]` via the `links` array** (missing this caused ComfyUI "Required input is missing: images" errors). `control_after_generate` (e.g. seed's `'fixed'`/`'randomize'`) occupies one extra `widgets_values` slot and must be skipped (`_align_widgets`).
   - `discover_fields(body, object_info)` returns candidate fields: type `text|seed|number|select` (inferred from object_info COMBO options / INT / FLOAT, else value shape); **`default` always from workflow `widgets_values`, never from object_info** (object_info `default` is node-type default and overrides real values — a past bug). `_field_meta` only supplies `min/max/step/options`. Labels prefer `inputs[].localized_name` (Chinese); `_conditioning_labels` renames CLIPTextEncode `text` fields to 正面/负面提示词 by tracing KSampler `positive`/`negative` links. `_LOADER_INPUTS` blacklist drops loader fields (clip_name/type/device/vae_name/shift/etc.) but keeps lora_name + strength_model.
   - `apply_parameters(api_template, fields, parameters)` deep-copies the template, fills only checked fields' slots, keeps everything else at template defaults. `GenerationField.type` regex is `^(text|seed|number|select)$`.
+- **LoRA feature** (`/loras` page): `Lora` table PK=`name`(string filename), fields `base_family`/`source_url`/`trigger_words`/`deleted_from_comfyui`. `LoraModelLink` (composite PK `(lora_name, model_name)`) holds many-to-many binding with `source` ∈ `{workflow, manual}`. `LoraService.sync()` reads ComfyUI `object_info` to list installed loras (returns `None` on ComfyUI unreachable — DON'T treat as empty list, would wipe the DB); new loras → `is_new=true` until first binding; removed loras → `deleted_from_comfyui=true` (NEVER row-deleted). `base_family` auto-detected by `detect_base_family(header)` from safetensors `__metadata__` (`base_model` / `compatible_base`) then tensor-key fallback (`tensor_family` recognizes SD1.5 / SDXL / Qwen-Image / MiniMax-H3 / Z-Image). Workflow-derived bindings via `lora_model_pairs_from_body(UI body)` (links array lookup) and `lora_model_pairs_from_template(api_template)` (model ref is `[from_node_id, from_slot]`). Routes: `GET /lora` + `POST /lora/sync` (both sync-then-list). `GenerationConfigSummary.main_model` consumed by `GenerationCreateModal` to filter `lora_name` select by user main model. Binding guide at `frontend/public/docs/lora-ai-binding-guide.md` (BOM-prefixed UTF-8 for browser decode — see Quirks); source copy in `docs/lora-ai-binding-guide.md` — keep in sync.
 
 ## Not here yet (next-stage placeholders)
 
-- No alembic / `backend/migrations/`. Adding a new table? Just add the model — `Base.metadata.create_all()` picks it up at next import. New tables are NOT auto-added to existing DBs.
+- No alembic. `Base.metadata.create_all()` creates new tables but does NOT add columns to existing tables. **For column additions**, append to `backend/app/core/migrate.py` (`_ensure_column` does `PRAGMA table_info` + `ALTER TABLE ... ADD COLUMN`, idempotent). New tables added by model definitions are NOT auto-created in existing DBs (delete `storage/data/comfychat.db` or migrate by hand).
 - No lint, formatter, pre-commit, CI, or frontend test framework. Validation = `npm run typecheck` + pytest + manual smoke.
-- `frontend/src/features/{dashboard,files,tasks}` — still `.gitkeep` placeholders. `workflows/` and `generations/` are implemented.
+- `frontend/src/features/{dashboard,files,tasks}` — still `.gitkeep` placeholders. `workflows/`, `generations/`, `loras/` are implemented.
 
 ## OpenCode / MCP
 
