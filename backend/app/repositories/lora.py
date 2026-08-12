@@ -98,3 +98,11 @@ class LoraRepository:
     def names(self) -> set[str]:
         stmt = select(Lora.name)
         return {n for (n,) in self.session.execute(stmt).all()}
+
+    def update_nsfw(self, name: str, is_nsfw: bool) -> None:
+        lora = self.session.get(Lora, name)
+        if lora is None:
+            return
+        lora.is_nsfw = is_nsfw
+        lora.updated_at = _utcnow()
+        self.session.commit()
