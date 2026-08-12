@@ -13,7 +13,6 @@ const familyFilter = ref("");
 const boundFilter = ref("");
 const deletedFilter = ref("");
 const { enabled: nsfwEnabled } = useNsfwFilter();
-const nsfwFilter = ref("");
 
 const BINDING_GUIDE_URL = "/docs/lora-ai-binding-guide.md";
 const guideNotice = ref(true);
@@ -55,8 +54,6 @@ const filteredItems = computed(() => {
     if (deletedFilter.value === "deleted" && !it.deleted_from_comfyui) return false;
     if (deletedFilter.value === "active" && it.deleted_from_comfyui) return false;
     if (!nsfwEnabled.value && it.is_nsfw) return false;
-    if (nsfwFilter.value === "nsfw" && !it.is_nsfw) return false;
-    if (nsfwFilter.value === "safe" && it.is_nsfw) return false;
     return true;
   });
 });
@@ -123,10 +120,6 @@ onMounted(load);
         <el-option value="active" label="正常" />
         <el-option value="deleted" label="已删除" />
       </el-select>
-      <el-select v-model="nsfwFilter" placeholder="NSFW 状态" clearable style="width: 130px">
-        <el-option value="nsfw" label="NSFW" />
-        <el-option value="safe" label="安全" />
-      </el-select>
     </div>
 
     <el-table :data="filteredItems" v-loading="loading" stripe style="width: 100%">
@@ -158,8 +151,9 @@ onMounted(load);
           <el-tag
             :type="row.is_nsfw ? 'danger' : 'success'"
             size="small"
-            style="cursor: pointer"
-            @click="toggleLoraNsfw(row)"
+            :style="nsfwEnabled ? 'cursor: pointer' : ''"
+            :disable-transitions="true"
+            @click="nsfwEnabled && toggleLoraNsfw(row)"
           >
             {{ row.is_nsfw ? "NSFW" : "安全" }}
           </el-tag>
