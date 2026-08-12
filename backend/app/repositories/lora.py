@@ -106,3 +106,11 @@ class LoraRepository:
         lora.is_nsfw = is_nsfw
         lora.updated_at = _utcnow()
         self.session.commit()
+
+    def update_trigger_words(self, name: str, trigger_words: Optional[str]) -> None:
+        lora = self.session.get(Lora, name)
+        if lora is None:
+            return
+        lora.trigger_words = (trigger_words or "").strip() or None
+        lora.updated_at = _utcnow()
+        self.session.commit()

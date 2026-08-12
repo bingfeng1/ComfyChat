@@ -126,5 +126,11 @@ export const api = {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ is_nsfw: isNsfw }),
       }),
+    updateTrigger: (name: string, triggerWords: string | null) =>
+      request(`/lora/${encodeURIComponent(name)}/trigger`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ trigger_words: triggerWords }),
+      }),
   },
 };

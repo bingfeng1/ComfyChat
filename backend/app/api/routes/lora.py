@@ -19,6 +19,10 @@ class NsfwUpdate(BaseModel):
     is_nsfw: bool
 
 
+class TriggerWordsUpdate(BaseModel):
+    trigger_words: str | None = None
+
+
 def _service(
     session: Session = Depends(get_db_session),
     services: dict = Depends(get_services),
@@ -45,6 +49,7 @@ def _out(session: Session, is_new: set[str] | None = None) -> LoraListOut:
             models=models,
             deleted_from_comfyui=lora.deleted_from_comfyui,
             is_new=lora.name in is_new and not models,
+            is_nsfw=lora.is_nsfw,
         ))
     return LoraListOut(items=items)
 
@@ -73,6 +78,29 @@ def update_lora_nsfw(
 ) -> LoraOut:
     repo = LoraRepository(session)
     repo.update_nsfw(name, payload.is_nsfw)
+    lora = session.get(Lora, name)
+    if lora is None:
+        raise HTTPException(status_code=404, detail="LoRA not found")
+    return LoraOut(
+        name=lora.name,
+        base_family=lora.base_family,
+        source_url=lora.source_url,
+        trigger_words=lora.trigger_words,
+        models=[],
+        deleted_from_comfyui=lora.deleted_from_comfyui,
+        is_new=False,
+        is_nsfw=lora.is_nsfw,
+    )
+
+
+@router.post("/{name}/trigger", response_model=LoraOut)
+def update_lora_trigger(
+    name: str,
+    payload: TriggerWordsUpdate,
+    session: Session = Depends(get_db_session),
+) -> LoraOut:
+    repo = LoraRepository(session)
+    repo.update_trigger_words(name, payload.trigger_words)
     lora = session.get(Lora, name)
     if lora is None:
         raise HTTPException(status_code=404, detail="LoRA not found")
