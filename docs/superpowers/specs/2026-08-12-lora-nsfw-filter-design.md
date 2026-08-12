@@ -20,12 +20,9 @@
    - 在 `app/core/migrate.py` 中添加 `_ensure_column` 调用
 
 2. **API 扩展**
-   - `GET /lora` 接口新增 `exclude_nsfw` 查询参数
-   - 当 `exclude_nsfw=true` 时，过滤 `is_nsfw=True` 的 LoRA
-   - `LoraOut` schema 新增 `is_nsfw` 字段
+   - `LoraOut` schema 新增 `is_nsfw` 字段（返回给前端）
 
 3. **Repository 层**
-   - `LoraRepository.list_all()` 支持 `exclude_nsfw` 参数
    - 新增 `LoraRepository.update_nsfw(name, is_nsfw)` 方法
 
 ### 前端改动
@@ -42,12 +39,12 @@
    - 右上角添加 Toggle Switch 控件（"显示 NSFW"）
    - 表格新增"NSFW"列，显示标签
    - 表格新增"NSFW"筛选选项（全部/是/否）
-   - 点击 Toggle 时重新加载数据（带 `exclude_nsfw` 参数）
+   - 点击 Toggle 时，前端根据开关状态自行过滤列表显示
 
 4. **全局过滤**
    - 创建 `useNsfwFilter` composable 函数
    - 所有使用 LoRA 选择的组件注入此状态
-   - 过滤逻辑在数据获取层完成（前端调用 API 时带参数）
+   - 过滤逻辑在前端完成（基于 `is_nsfw` 字段和开关状态）
 
 ### 文件变更清单
 
@@ -55,12 +52,12 @@
 |------|------|
 | `backend/app/core/migrate.py` | 添加 `is_nsfw` 列迁移 |
 | `backend/app/schemas/lora.py` | `LoraOut` 新增 `is_nsfw` 字段 |
-| `backend/app/repositories/lora.py` | `list_all()` 支持过滤，新增 `update_nsfw()` |
-| `backend/app/api/routes/lora.py` | `GET /lora` 支持 `exclude_nsfw` 参数 |
+| `backend/app/repositories/lora.py` | 新增 `update_nsfw()` 方法 |
+| `backend/app/api/routes/lora.py` | 无需改动（`LoraOut` 已返回完整数据） |
 | `frontend/src/types/api.ts` | `LoraSummary` 新增 `is_nsfw` 字段 |
 | `frontend/src/composables/useNsfwFilter.ts` | 新增：NSFW 状态管理 composable |
 | `frontend/src/features/loras/LorasView.vue` | 添加 Toggle、NSFW 列、NSFW 筛选 |
-| `frontend/src/services/api.ts` | `loras.list()` 支持 `excludeNsfw` 参数 |
+| `frontend/src/services/api.ts` | 无需改动（返回完整列表，前端过滤） |
 
 ### 数据流
 
@@ -69,13 +66,11 @@
     ↓
 updateNsfwEnabled(false)  // localStorage 更新
     ↓
-LorasView 监听状态变化
+useNsfwFilter 状态变化
     ↓
-调用 api.loras.list({ excludeNsfw: true })
+LorasView / 其他组件监听状态
     ↓
-后端过滤 is_nsfw=true 的记录
-    ↓
-返回过滤后的列表
+前端根据 is_nsfw 字段自行过滤显示
 ```
 
 ### 迁移策略
