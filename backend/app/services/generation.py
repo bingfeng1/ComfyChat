@@ -22,6 +22,12 @@ def _utcnow() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+# _poll_once 在 status == "running" 但 /history 为空时计入 miss。
+# 刚从 queued 升级到 running 的几秒内,ComfyUI pipeline 还没把 entry 写进 /history,
+# 这种空响应属于正常启动延迟,不应视为 miss。在宽限期内直接 return False 继续等待。
+RUNNING_HISTORY_GRACE_SECONDS = 10.0
+
+
 _CONTROL_TOKENS = {"fixed", "randomize", "increment", "decrement"}
 
 # 模型加载器字段黑名单: 这些是 ComfyUI 底层加载配置,生成时不应让用户填写。
@@ -373,8 +379,24 @@ class GenerationService:
         """
         repo = GenerationRepository(session)
         if gen.status == "running":
+            # 宽限期:刚升级到 running 的几秒内,/history 还没 entry 是正常的。
+            # 此时空响应不计入 miss,但 /history 的 entry 仍正常检测 —— 不阻塞快速成功的
+            # 生成任务。只在尚未计过 miss 时检查宽限期——一旦开始计数,update_poll_miss_count
+            # 会刷新 updated_at,这时不再重新进入宽限期,以免死循环。
+            in_grace = False
+            if (gen.poll_miss_count or 0) == 0:
+                try:
+                    running_since = datetime.fromisoformat(gen.updated_at)
+                except (TypeError, ValueError):
+                    running_since = None
+                if running_since is not None:
+                    elapsed = (datetime.now(timezone.utc) - running_since).total_seconds()
+                    if elapsed < RUNNING_HISTORY_GRACE_SECONDS:
+                        in_grace = True
             history = self.comfyui.get_history(gen.prompt_id)
             if not history:
+                if in_grace:
+                    return False
                 miss = (gen.poll_miss_count or 0) + 1
                 if miss >= 2:
                     repo.mark_failed(gen.id, "生成结果丢失")

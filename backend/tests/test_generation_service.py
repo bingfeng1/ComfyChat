@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -631,9 +632,38 @@ def test_poll_marks_failed_after_two_running_misses(session, tmp_path):
     svc = _service(session, settings, comfy)
     repo = GenerationRepository(session)
     gen = repo.create("wf1", "z-image", {}, "running", "p-1")
+    # updated_at 默认是 _utcnow(),需要回拨到宽限期外(>10s) 才能让旧的 miss-counter 行为继续生效。
+    backdated = (datetime.now(timezone.utc) - timedelta(seconds=20)).isoformat()
+    gen.updated_at = backdated
+    session.commit()
 
     svc.poll_until_done(gen.id, poll_interval=0.0)
 
     got = repo.get(gen.id)
     assert got.status == "failed"
     assert "生成结果丢失" in (got.error or "")
+
+
+def test_poll_does_not_count_misses_during_grace_period(session, tmp_path):
+    """刚升级到 running 的几秒内,/history 可能还没有 entry,不应计 miss。
+
+    updated_at 默认为 _utcnow() → 处于宽限期内,_poll_once 应直接 return False
+    继续等待,而非触发 miss-counter 把任务标记为 failed。
+
+    直接调 _poll_once(poll_until_done 在 poll_interval=0.0 下会跑完 900 次
+    max_attempts 后报"轮询超时",不适合验证宽限期内的语义)。
+    """
+    settings = _settings(tmp_path)
+    comfy = FakeComfy()
+    comfy.history = {}  # 永远为空
+    svc = _service(session, settings, comfy)
+    repo = GenerationRepository(session)
+    gen = repo.create("wf1", "z-image", {}, "running", "p-1")
+    # updated_at 是 now() — 处于宽限期(10s)内
+
+    terminal = svc._poll_once(repo.session, gen)
+
+    got = repo.get(gen.id)
+    assert terminal is False
+    assert got.status == "running"
+    assert got.poll_miss_count == 0
