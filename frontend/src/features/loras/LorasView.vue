@@ -12,7 +12,7 @@ const search = ref("");
 const familyFilter = ref("");
 const boundFilter = ref("");
 const deletedFilter = ref("");
-const { enabled: nsfwEnabled, toggle: toggleNsfw } = useNsfwFilter();
+const { enabled: nsfwEnabled } = useNsfwFilter();
 const nsfwFilter = ref("");
 
 const BINDING_GUIDE_URL = "/docs/lora-ai-binding-guide.md";
@@ -127,13 +127,6 @@ onMounted(load);
         <el-option value="nsfw" label="NSFW" />
         <el-option value="safe" label="安全" />
       </el-select>
-      <el-switch
-        v-model="nsfwEnabled"
-        active-text="显示 NSFW"
-        inline-prompt
-        style="width: 110px"
-        @change="toggleNsfw"
-      />
     </div>
 
     <el-table :data="filteredItems" v-loading="loading" stripe style="width: 100%">
