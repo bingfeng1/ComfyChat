@@ -563,12 +563,12 @@ def test_cancel_queued_calls_delete_queued(session, tmp_path):
     _config(session, "wf1")
     comfy = FakeCancellableComfy()
     svc = _service(session, settings, comfy)
+    repo = GenerationRepository(session)
     gen = svc.create("wf1", {"positive_prompt": "cat", "seed": 5, "seed_random": False})
 
     result = svc.cancel(gen.id)
 
-    assert result.status == "failed"
-    assert result.error == "用户中止"
+    assert repo.get(gen.id) is None
     assert comfy.delete_queued_calls == ["p-1"]
     assert comfy.interrupt_calls == 0
 
@@ -584,8 +584,7 @@ def test_cancel_running_calls_interrupt(session, tmp_path):
 
     result = svc.cancel(gen.id)
 
-    assert result.status == "failed"
-    assert result.error == "用户中止"
+    assert repo.get(gen.id) is None
     assert comfy.interrupt_calls == 1
     assert comfy.delete_queued_calls == []
 
@@ -625,8 +624,7 @@ def test_cancel_swallows_comfyui_error(session, tmp_path):
 
     result = svc.cancel(gen.id)
 
-    assert result.status == "failed"
-    assert result.error == "用户中止"
+    assert repo.get(gen.id) is None
 
 
 def test_poll_marks_failed_after_two_running_misses(session, tmp_path):

@@ -337,7 +337,14 @@ async function abort() {
       const data = await res.json().catch(() => null);
       throw new Error(data?.detail ?? `中止失败:${res.status}`);
     }
-    // 后端会写 failed=用户中止,下一轮 pollOnce 命中即停止 + 显示「已中止」
+    // 后端已删除该记录,直接停止轮询并复位弹窗状态
+    stopPolling();
+    activeGenId.value = null;
+    activeStatus.value = null;
+    activeError.value = null;
+    mainImageUrl.value = null;
+    history.value = [];
+    emit("generated");
   } catch (err) {
     abortError.value = err instanceof Error ? err.message : String(err);
   } finally {
@@ -362,7 +369,7 @@ function paramDisplay(f: GenerationField): string {
 <template>
   <Modal
     :title="props.preset ? '再生成' : '新建生成'"
-    width="1200px"
+    :width="step === totalSteps ? '1200px' : '620px'"
     @close="emit('close')"
   >
     <div v-if="loading" class="cc-loading">
@@ -385,8 +392,11 @@ function paramDisplay(f: GenerationField): string {
       </p>
     </div>
 
-    <div v-else class="cc-modal-body">
-      <div class="cc-modal-left">
+    <div v-else class="cc-modal-body" :class="{ 'is-final-step': step === totalSteps }">
+      <div
+        class="cc-modal-left"
+        :class="{ 'is-full-width': step !== totalSteps }"
+      >
         <div class="cc-step-header">
         第 {{ step }} 步 / 共 {{ totalSteps }} 步 — {{ stepTitle }}
       </div>
@@ -565,19 +575,16 @@ function paramDisplay(f: GenerationField): string {
         />
       </div>
 
-      <div class="cc-modal-divider"></div>
+      <template v-if="step === totalSteps">
+        <div class="cc-modal-divider"></div>
 
-      <div class="cc-modal-right">
+        <div class="cc-modal-right">
         <div class="cc-image-panel">
           <div class="cc-image-main">
             <el-icon v-if="activeGenId && (activeStatus === 'queued' || activeStatus === 'running')" class="is-loading cc-image-loading">
               <Loading />
             </el-icon>
             <img v-else-if="mainImageUrl" :src="mainImageUrl" alt="生成结果" class="cc-image-main-img" />
-            <div v-else-if="activeGenId && activeStatus === 'failed' && activeError === '用户中止'" class="cc-image-cancelled">
-              <span class="cc-image-cancelled-icon">⏹</span>
-              <p>已中止</p>
-            </div>
             <div v-else-if="activeGenId && activeStatus === 'failed'" class="cc-image-error">
               <p>{{ activeError || '生成失败' }}</p>
             </div>
@@ -590,7 +597,6 @@ function paramDisplay(f: GenerationField): string {
             <span v-if="activeStatus === 'queued'">排期中…</span>
             <span v-else-if="activeStatus === 'running'">生成中…</span>
             <span v-else-if="activeStatus === 'success'">完成</span>
-            <span v-else-if="activeStatus === 'failed' && activeError === '用户中止'">已中止</span>
             <span v-else-if="activeStatus === 'failed'">失败</span>
           </div>
           <div v-if="history.length > 0" class="cc-image-history">
@@ -606,6 +612,7 @@ function paramDisplay(f: GenerationField): string {
           </div>
         </div>
       </div>
+      </template>
     </div>
 
     <template #footer>
@@ -621,22 +628,24 @@ function paramDisplay(f: GenerationField): string {
           :disabled="!canProceed"
           @click="next"
         >下一步</el-button>
-        <el-button
-          v-if="activeGenId && (activeStatus === 'queued' || activeStatus === 'running')"
-          type="danger"
-          plain
-          :loading="aborting"
-          @click="abort"
-        >
-          <el-icon style="margin-right: 4px"><CircleClose /></el-icon>
-          中止
-        </el-button>
-        <el-button
-          v-else
-          type="primary"
-          :loading="submitting"
-          @click="submit"
-        >生成</el-button>
+        <template v-else>
+          <el-button
+            v-if="activeGenId && (activeStatus === 'queued' || activeStatus === 'running')"
+            type="danger"
+            plain
+            :loading="aborting"
+            @click="abort"
+          >
+            <el-icon style="margin-right: 4px"><CircleClose /></el-icon>
+            中止
+          </el-button>
+          <el-button
+            v-else
+            type="primary"
+            :loading="submitting"
+            @click="submit"
+          >生成</el-button>
+        </template>
       </template>
     </template>
   </Modal>
@@ -726,6 +735,8 @@ function paramDisplay(f: GenerationField): string {
 .cc-modal-body {
   display: flex;
   gap: 24px;
+}
+.cc-modal-body.is-final-step {
   min-height: 400px;
 }
 .cc-modal-left {
@@ -734,6 +745,9 @@ function paramDisplay(f: GenerationField): string {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+}
+.cc-modal-left.is-full-width {
+  width: 100%;
 }
 .cc-modal-divider {
   width: 1px;
@@ -786,22 +800,14 @@ function paramDisplay(f: GenerationField): string {
   max-height: 100%;
   object-fit: contain;
 }
-.cc-image-cancelled,
 .cc-image-error {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 8px;
-  color: #64748b;
+  color: #ef4444;
   padding: 1rem;
   text-align: center;
-}
-.cc-image-cancelled-icon {
-  font-size: 3rem;
-  opacity: 0.6;
-}
-.cc-image-error {
-  color: #ef4444;
 }
 .cc-image-status {
   font-size: 0.85rem;

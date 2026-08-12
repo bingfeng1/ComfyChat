@@ -131,7 +131,7 @@ def test_image_404_unknown(tmp_path):
     assert r.status_code == 404
 
 
-def test_cancel_marks_failed_and_returns_200(tmp_path, monkeypatch):
+def test_cancel_deletes_record_and_returns_204(tmp_path, monkeypatch):
     client, _ = _client(tmp_path)
     wid = _import_workflow(client)
     _config(client, wid)
@@ -161,10 +161,9 @@ def test_cancel_marks_failed_and_returns_200(tmp_path, monkeypatch):
     }).json()
 
     r = client.post(f"/generations/{gen['id']}/cancel")
-    assert r.status_code == 200, r.text
-    body = r.json()
-    assert body["status"] == "failed"
-    assert body["error"] == "用户中止"
+    assert r.status_code == 204, r.text
+    # 中止的生成不留记录
+    assert client.get(f"/generations/{gen['id']}").status_code == 404
 
 
 def test_cancel_returns_404_for_unknown_id(tmp_path):

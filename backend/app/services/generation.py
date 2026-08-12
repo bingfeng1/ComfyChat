@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import json
 import random
+import shutil
 import time
 import uuid
 from datetime import datetime, timezone
@@ -337,7 +338,10 @@ class GenerationService:
         )
 
     def cancel(self, generation_id: str) -> Generation:
-        """按 generation 当前状态选对应 ComfyUI 端点,把 row 标 failed=用户中止。"""
+        """按 generation 当前状态选对应 ComfyUI 端点,然后删除记录。
+
+        中止的生成不留记录 —— 不出现在生成列表中。
+        """
         with self._session_scope() as session:
             repo = GenerationRepository(session)
             gen = repo.get(generation_id)
@@ -352,8 +356,10 @@ class GenerationService:
                     self.comfyui.interrupt()
             except ComfyUIError:
                 pass
-            repo.mark_failed(generation_id, "用户中止")
-            session.refresh(gen)
+            out_dir = self.outputs_dir(gen)
+            if out_dir.exists():
+                shutil.rmtree(out_dir)
+            repo.delete(generation_id)
             return gen
 
     def outputs_dir(self, gen: Generation) -> Path:
