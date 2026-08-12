@@ -11,6 +11,7 @@ class LoraOut(BaseModel):
     models: list[str] = Field(default_factory=list)
     deleted_from_comfyui: bool = False
     is_new: bool = False
+    is_nsfw: bool = False
 
 
 class LoraListOut(BaseModel):
