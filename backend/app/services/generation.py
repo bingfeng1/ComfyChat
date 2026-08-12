@@ -295,6 +295,47 @@ def apply_parameters(
     return filled, effective
 
 
+def append_lora_trigger(
+    filled: dict,
+    fields: list[dict],
+    effective: dict,
+    session: Session,
+) -> None:
+    """把已选 LoRA 的 trigger_words 追加到正面提示词节点(仅当 strength > 0)。
+
+    只改 filled(提交给 ComfyUI 的模板),不动 effective(入库参数)。
+    - 找不到 text 字段 / 无 LoRA / strength 缺失或 <= 0 / 无 trigger 时跳过。
+    - trigger 已存在于 text(大小写不敏感)时跳过去重。
+    - 追加格式:单独一行(f"{text}\\n{trigger}")。
+    """
+    text_field = next(
+        (f for f in fields if f.get("key") == "text" and f.get("type") == "text"),
+        None,
+    )
+    lora_name = effective.get("lora_name")
+    strength = effective.get("strength_model")
+    if text_field is None or not isinstance(lora_name, str) or not lora_name:
+        return
+    try:
+        if strength is None or float(strength) <= 0:
+            return
+    except (TypeError, ValueError):
+        return
+    from app.repositories.lora import LoraRepository
+
+    trigger = (LoraRepository(session).get_trigger_words(lora_name) or "").strip()
+    if not trigger:
+        return
+    node_id = str(text_field["node_id"])
+    input_name = text_field["input_name"]
+    inputs = filled.get(node_id, {}).get("inputs", {})
+    current = inputs.get(input_name) or ""
+    if trigger.lower() in str(current).lower():
+        return
+    separator = "" if not str(current).strip() else "\n"
+    inputs[input_name] = f"{current}{separator}{trigger}"
+
+
 def collect_images(history_entry: dict) -> list[dict]:
     images = []
     for node_output in (history_entry.get("outputs") or {}).values():
@@ -321,11 +362,15 @@ class GenerationService:
         cfg = self.config_repo.get_by_workflow(workflow_id)
         if cfg is None:
             raise ValueError("workflow not configured")
+        auto_add_trigger = bool(parameters.pop("auto_add_trigger", True))
+        fields = json.loads(cfg.fields_json)
         filled, effective = apply_parameters(
             json.loads(cfg.api_template),
-            json.loads(cfg.fields_json),
+            fields,
             parameters,
         )
+        if auto_add_trigger:
+            append_lora_trigger(filled, fields, effective, self.gen_repo.session)
         prompt_id = self.comfyui.submit_prompt(filled)
         wf = WorkflowRepository(self.gen_repo.session).get(workflow_id)
         wf_name = wf.name if wf else workflow_id

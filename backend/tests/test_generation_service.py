@@ -10,6 +10,7 @@ from app.models.generation import Generation
 from app.repositories.generation import GenerationRepository, WorkflowGenerationConfigRepository
 from app.services.generation import (
     GenerationService,
+    append_lora_trigger,
     apply_parameters,
     discover_fields,
     infer_field_type,
@@ -736,3 +737,129 @@ def test_poll_marks_failed_when_prompt_in_neither_queue_nor_history(session, tmp
     got = repo.get(gen.id)
     assert got.status == "failed"
     assert "生成结果丢失" in (got.error or "")
+
+
+# ---- append_lora_trigger ----------------------------------------------------
+
+TRIGGER_FIELDS = [
+    {"key": "text", "label": "正面提示词", "type": "text", "node_id": "7", "input_name": "text", "default": "", "required": False},
+    {"key": "text_1", "label": "负面提示词", "type": "text", "node_id": "8", "input_name": "text", "default": "", "required": False},
+    {"key": "lora_name", "label": "LoRA", "type": "select", "node_id": "6", "input_name": "lora_name", "default": "", "required": False},
+    {"key": "strength_model", "label": "强度", "type": "number", "node_id": "6", "input_name": "strength_model", "default": 1.0, "required": False},
+]
+
+
+def _seed_lora(session, name, trigger):
+    from app.models.lora import Lora
+    session.add(Lora(name=name, trigger_words=trigger, is_nsfw=False))
+    session.commit()
+
+
+def _filled_with_effective(text="", lora=None, strength=1.0):
+    filled = {
+        "7": {"class_type": "CLIPTextEncode", "inputs": {"text": text}},
+        "8": {"class_type": "CLIPTextEncode", "inputs": {"text": "blurry"}},
+        "6": {"class_type": "LoraLoaderModelOnly", "inputs": {"lora_name": lora, "strength_model": strength}},
+    }
+    effective = {"text": text, "lora_name": lora, "strength_model": strength}
+    return filled, effective
+
+
+def test_append_lora_trigger_adds_separate_line(session):
+    _seed_lora(session, "mumu_20.safetensors", "mumu")
+    filled, effective = _filled_with_effective(text="a girl", lora="mumu_20.safetensors", strength=1.0)
+    append_lora_trigger(filled, TRIGGER_FIELDS, effective, session)
+    assert filled["7"]["inputs"]["text"] == "a girl\nmumu"
+
+
+def test_append_lora_trigger_fills_empty_text(session):
+    _seed_lora(session, "mumu_20.safetensors", "mumu")
+    filled, effective = _filled_with_effective(text="", lora="mumu_20.safetensors", strength=1.0)
+    append_lora_trigger(filled, TRIGGER_FIELDS, effective, session)
+    assert filled["7"]["inputs"]["text"] == "mumu"
+
+
+def test_append_lora_trigger_skips_when_strength_zero(session):
+    _seed_lora(session, "mumu_20.safetensors", "mumu")
+    filled, effective = _filled_with_effective(text="a girl", lora="mumu_20.safetensors", strength=0)
+    append_lora_trigger(filled, TRIGGER_FIELDS, effective, session)
+    assert filled["7"]["inputs"]["text"] == "a girl"
+
+
+def test_append_lora_trigger_skips_when_strength_missing(session):
+    _seed_lora(session, "mumu_20.safetensors", "mumu")
+    filled, effective = _filled_with_effective(text="a girl", lora="mumu_20.safetensors")
+    effective.pop("strength_model", None)
+    append_lora_trigger(filled, TRIGGER_FIELDS, effective, session)
+    assert filled["7"]["inputs"]["text"] == "a girl"
+
+
+def test_append_lora_trigger_skips_when_no_lora(session):
+    filled, effective = _filled_with_effective(text="a girl", lora=None, strength=1.0)
+    append_lora_trigger(filled, TRIGGER_FIELDS, effective, session)
+    assert filled["7"]["inputs"]["text"] == "a girl"
+
+
+def test_append_lora_trigger_skips_when_no_trigger_words(session):
+    _seed_lora(session, "noloop.safetensors", None)
+    filled, effective = _filled_with_effective(text="a girl", lora="noloop.safetensors", strength=1.0)
+    append_lora_trigger(filled, TRIGGER_FIELDS, effective, session)
+    assert filled["7"]["inputs"]["text"] == "a girl"
+
+
+def test_append_lora_trigger_dedup_case_insensitive(session):
+    _seed_lora(session, "mumu_20.safetensors", "mumu")
+    filled, effective = _filled_with_effective(text="a girl, Mumu", lora="mumu_20.safetensors", strength=1.0)
+    append_lora_trigger(filled, TRIGGER_FIELDS, effective, session)
+    assert filled["7"]["inputs"]["text"] == "a girl, Mumu"
+
+
+def test_append_lora_trigger_does_not_touch_negative(session):
+    _seed_lora(session, "mumu_20.safetensors", "mumu")
+    filled, effective = _filled_with_effective(text="a girl", lora="mumu_20.safetensors", strength=1.0)
+    append_lora_trigger(filled, TRIGGER_FIELDS, effective, session)
+    assert filled["8"]["inputs"]["text"] == "blurry"
+
+
+def test_create_with_auto_add_trigger_appends_to_filled_not_effective(session, tmp_path):
+    settings = _settings(tmp_path)
+    api_template = {
+        "7": {"class_type": "CLIPTextEncode", "inputs": {"text": ""}},
+        "8": {"class_type": "CLIPTextEncode", "inputs": {"text": "blurry"}},
+        "6": {"class_type": "LoraLoaderModelOnly", "inputs": {"lora_name": "", "strength_model": 1.0}},
+    }
+    WorkflowGenerationConfigRepository(session).upsert("wf1", api_template, TRIGGER_FIELDS)
+    _seed_lora(session, "mumu_20.safetensors", "mumu")
+    comfy = FakeComfy()
+    svc = _service(session, settings, comfy)
+    gen = svc.create("wf1", {
+        "text": "a girl",
+        "lora_name": "mumu_20.safetensors",
+        "strength_model": 1.0,
+        "auto_add_trigger": True,
+    })
+    assert comfy.submitted["7"]["inputs"]["text"] == "a girl\nmumu"
+    params = json.loads(gen.parameters_json)
+    assert params["text"] == "a girl"  # 入库不含 trigger
+    assert "auto_add_trigger" not in params  # 标志不入库
+
+
+def test_create_with_auto_add_trigger_false(session, tmp_path):
+    settings = _settings(tmp_path)
+    api_template = {
+        "7": {"class_type": "CLIPTextEncode", "inputs": {"text": ""}},
+        "8": {"class_type": "CLIPTextEncode", "inputs": {"text": "blurry"}},
+        "6": {"class_type": "LoraLoaderModelOnly", "inputs": {"lora_name": "", "strength_model": 1.0}},
+    }
+    WorkflowGenerationConfigRepository(session).upsert("wf1", api_template, TRIGGER_FIELDS)
+    _seed_lora(session, "mumu_20.safetensors", "mumu")
+    comfy = FakeComfy()
+    svc = _service(session, settings, comfy)
+    gen = svc.create("wf1", {
+        "text": "a girl",
+        "lora_name": "mumu_20.safetensors",
+        "strength_model": 1.0,
+        "auto_add_trigger": False,
+    })
+    assert comfy.submitted["7"]["inputs"]["text"] == "a girl"
+    assert json.loads(gen.parameters_json)["text"] == "a girl"

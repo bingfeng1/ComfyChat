@@ -114,3 +114,10 @@ class LoraRepository:
         lora.trigger_words = (trigger_words or "").strip() or None
         lora.updated_at = _utcnow()
         self.session.commit()
+
+    def get_trigger_words(self, name: str) -> Optional[str]:
+        """返回指定 LoRA 的 trigger_words(无记录或为空返回 None)。"""
+        lora = self.session.get(Lora, name)
+        if lora is None:
+            return None
+        return lora.trigger_words or None
