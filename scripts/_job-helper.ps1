@@ -142,7 +142,9 @@ function Start-ComfyUI {
     
     Write-Host "ComfyUI not running, starting via $mainScript" -ForegroundColor Yellow
     
-    $null = Start-Process -FilePath $mainScript -WorkingDirectory $portableRoot -PassThru -WindowStyle Hidden
+    # 以可见窗口启动 ComfyUI,方便用户手动关闭/重启。ComfyUI 不加入 Job Object,
+    # 因此 stop-dev 不会联动关掉它。
+    $null = Start-Process -FilePath $mainScript -WorkingDirectory $portableRoot -PassThru
     
     $comfyuiUrl = Get-ComfyUIUrl
     $comfyuiPort = Get-ComfyUIPort

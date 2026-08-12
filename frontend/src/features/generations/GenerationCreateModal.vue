@@ -9,8 +9,9 @@ import type { LoraSummary } from "@/types/api";
 const props = defineProps<{
   preset?: GenerationSummary | null;
   preselectWorkflowId?: string;
+  showGoto?: boolean;
 }>();
-const emit = defineEmits<{ close: []; generated: [] }>();
+const emit = defineEmits<{ close: []; generated: []; goto: [] }>();
 
 const loading = ref(true);
 const fetchError = ref<string | null>(null);
@@ -622,6 +623,7 @@ function paramDisplay(f: GenerationField): string {
       <template v-else>
         <el-button :disabled="step === 1" @click="back">上一步</el-button>
         <el-button @click="emit('close')">取消</el-button>
+        <el-button v-if="showGoto" @click="emit('goto')">跳转至生成界面</el-button>
         <el-button
           v-if="step < totalSteps"
           type="primary"

@@ -121,8 +121,7 @@ function onConfigClosed() {
 }
 
 function onGenerated() {
-  createFor.value = null;
-  router.push("/generations");
+  // 不再自动跳转:弹窗保持打开,可继续生成;用户可通过「跳转至生成界面」按钮手动跳转
 }
 
 function fmtSize(bytes: number) {
@@ -256,8 +255,10 @@ const sourceLabel: Record<string, string> = {
     <GenerationCreateModal
       v-if="createFor"
       :preselect-workflow-id="createFor.id"
+      show-goto
       @close="createFor = null"
       @generated="onGenerated"
+      @goto="router.push('/generations')"
     />
 
     <Modal v-if="confirmDelete" title="删除工作流" @close="confirmDelete = null">
