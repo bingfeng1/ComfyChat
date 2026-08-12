@@ -129,3 +129,84 @@ def test_image_404_unknown(tmp_path):
     client, _ = _client(tmp_path)
     r = client.get("/generations/nope/images/x.png")
     assert r.status_code == 404
+
+
+def test_cancel_marks_failed_and_returns_200(tmp_path, monkeypatch):
+    client, _ = _client(tmp_path)
+    wid = _import_workflow(client)
+    _config(client, wid)
+
+    from app.integrations.comfyui.client import ComfyUIClient
+    from app.services.generation import GenerationService
+
+    class FakeComfy:
+        def submit_prompt(self, prompt):
+            return "p-1"
+        def get_history(self, prompt_id):
+            return {}
+        def interrupt(self):
+            pass
+        def delete_queued(self, prompt_id):
+            pass
+
+    for name in ("submit_prompt", "get_history", "interrupt", "delete_queued"):
+        monkeypatch.setattr(ComfyUIClient, name, getattr(FakeComfy, name))
+    monkeypatch.setattr(GenerationService, "poll_until_done", lambda self, generation_id: None)
+
+    gen = client.post("/generations", json={
+        "workflow_id": wid,
+        "parameters": {"positive_prompt": "cat", "seed": 42, "seed_random": False},
+    }).json()
+
+    r = client.post(f"/generations/{gen['id']}/cancel")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["status"] == "failed"
+    assert body["error"] == "用户中止"
+
+
+def test_cancel_returns_404_for_unknown_id(tmp_path):
+    client, _ = _client(tmp_path)
+    r = client.post("/generations/nonexistent/cancel")
+    assert r.status_code == 404
+    assert "not found" in r.json()["detail"]
+
+
+def test_cancel_returns_409_for_terminal(tmp_path, monkeypatch):
+    client, _ = _client(tmp_path)
+    wid = _import_workflow(client)
+    _config(client, wid)
+
+    from app.integrations.comfyui.client import ComfyUIClient
+
+    class FakeComfy:
+        def submit_prompt(self, prompt):
+            return "p-1"
+        def get_history(self, prompt_id):
+            return {"p-1": {"status": {"status_str": "success"}, "outputs": {}}}
+        def get_image(self, filename, subfolder="", image_type="output"):
+            return b""
+        def interrupt(self):
+            pass
+        def delete_queued(self, prompt_id):
+            pass
+
+    for name in ("submit_prompt", "get_history", "get_image", "interrupt", "delete_queued"):
+        monkeypatch.setattr(ComfyUIClient, name, getattr(FakeComfy, name))
+
+    gen = client.post("/generations", json={
+        "workflow_id": wid,
+        "parameters": {"positive_prompt": "cat", "seed": 42, "seed_random": False},
+    }).json()
+
+    import time
+    for _ in range(20):
+        g = client.get(f"/generations/{gen['id']}").json()
+        if g["status"] == "success":
+            break
+        time.sleep(0.05)
+    assert g["status"] == "success"
+
+    r = client.post(f"/generations/{gen['id']}/cancel")
+    assert r.status_code == 409
+    assert "already terminal" in r.json()["detail"]

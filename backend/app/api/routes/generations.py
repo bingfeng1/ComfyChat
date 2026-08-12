@@ -78,6 +78,24 @@ def get_generation(
     return GenerationOut.from_model(gen)
 
 
+@router.post("/{generation_id}/cancel", response_model=GenerationOut)
+def cancel_generation(
+    generation_id: str,
+    service: GenerationService = Depends(_service),
+) -> GenerationOut:
+    try:
+        gen = service.cancel(generation_id)
+    except ValueError as exc:
+        msg = str(exc)
+        raise HTTPException(
+            status_code=404 if "not found" in msg else 409,
+            detail=msg,
+        )
+    except ComfyUIError as exc:
+        raise HTTPException(status_code=503, detail=f"ComfyUI 不可用: {exc}")
+    return GenerationOut.from_model(gen)
+
+
 @router.get("/{generation_id}/images/{filename}")
 def get_generation_image(
     generation_id: str,
