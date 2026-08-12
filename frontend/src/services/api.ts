@@ -113,6 +113,7 @@ export const api = {
       });
       return res;
     },
+    cancel: (id: string) => request(`/generations/${id}/cancel`, { method: "POST" }),
     remove: (id: string) => request(`/generations/${id}`, { method: "DELETE" }),
     imageUrl: (id: string, filename: string) =>
       `${API_BASE}/generations/${id}/images/${encodeURIComponent(filename)}`,
