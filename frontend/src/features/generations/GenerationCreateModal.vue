@@ -18,7 +18,6 @@ const loading = ref(true);
 const fetchError = ref<string | null>(null);
 const configs = ref<GenerationConfigSummary[]>([]);
 const loras = ref<LoraSummary[]>([]);
-const showAllLoras = ref(false);
 const { enabled: nsfwEnabled } = useNsfwFilter();
 const workflowId = ref("");
 const values = ref<Record<string, string | number>>({});
@@ -233,7 +232,7 @@ function loraOptions(f: GenerationField): string[] {
     return lora && !lora.is_nsfw;
   });
   const mainModel = currentConfig.value?.main_model;
-  if (!mainModel || showAllLoras.value) return nsfwFiltered;
+  if (!mainModel) return nsfwFiltered;
   const filtered = nsfwFiltered
     .map((name) => loras.value.find((l) => l.name === name))
     .filter((l) => l && l.models.includes(mainModel))
@@ -564,11 +563,6 @@ const autoTriggerPreview = computed(() => {
             @update:model-value="(v: string) => values[f.key] = v ?? ''"
           />
           <div v-if="isLoraField(f)" class="cc-lora-toggle">
-            <el-checkbox
-              v-if="currentConfig?.main_model"
-              :model-value="showAllLoras"
-              @update:model-value="(v: boolean) => showAllLoras = v"
-            >显示全部 LoRA</el-checkbox>
             <el-checkbox
               :model-value="autoAddTrigger"
               @update:model-value="(v: boolean) => autoAddTrigger = v"
