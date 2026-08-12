@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { CircleClose, Loading } from "@element-plus/icons-vue";
 import Modal from "@/components/Modal.vue";
+import { useNsfwFilter } from "@/composables/useNsfwFilter";
 import { api } from "@/services/api";
 import type { GenerationConfigSummary, GenerationField, GenerationStatus, GenerationSummary } from "@/types/api";
 import type { LoraSummary } from "@/types/api";
@@ -18,6 +19,7 @@ const fetchError = ref<string | null>(null);
 const configs = ref<GenerationConfigSummary[]>([]);
 const loras = ref<LoraSummary[]>([]);
 const showAllLoras = ref(false);
+const { enabled: nsfwEnabled } = useNsfwFilter();
 const workflowId = ref("");
 const values = ref<Record<string, string | number>>({});
 const randomFlags = ref<Record<string, boolean>>({});
@@ -217,12 +219,18 @@ function isLoraField(f: GenerationField): boolean {
 function loraOptions(f: GenerationField): string[] {
   if (!isLoraField(f)) return f.options ?? [];
   const all = f.options ?? [];
+  // 先按 NSFW 过滤
+  const nsfwFiltered = nsfwEnabled.value ? all : all.filter((name) => {
+    const lora = loras.value.find((l) => l.name === name);
+    return lora && !lora.is_nsfw;
+  });
   const mainModel = currentConfig.value?.main_model;
-  if (!mainModel || showAllLoras.value) return all;
-  const filtered = loras.value
-    .filter((l) => l.models.includes(mainModel))
-    .map((l) => l.name);
-  return filtered.length > 0 ? filtered : all;
+  if (!mainModel || showAllLoras.value) return nsfwFiltered;
+  const filtered = nsfwFiltered
+    .map((name) => loras.value.find((l) => l.name === name))
+    .filter((l) => l && l.models.includes(mainModel))
+    .map((l) => l!.name);
+  return filtered.length > 0 ? filtered : nsfwFiltered;
 }
 
 function onWorkflowChange(id: string | number) {
