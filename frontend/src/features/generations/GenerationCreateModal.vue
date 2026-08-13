@@ -589,55 +589,68 @@ const autoTriggerPreview = computed(() => {
               />
             </div>
           </template>
-          <template v-else-if="isLoraField(f)">
-            <div class="cc-lora-toggle">
+          <template v-else>
+            <div v-if="isLoraField(f)" class="cc-lora-toggle">
               <el-checkbox
                 :model-value="autoAddTrigger"
                 @update:model-value="(v: boolean) => autoAddTrigger = v"
               >自动添加 LoRA 触发词</el-checkbox>
             </div>
-          </template>
-          <LoraArrayField
-            v-else-if="isLoraArrayField(f)"
-            :model-value="(values[f.key] as LoraEntry[]) ?? []"
-            :loras="loras"
-            :main-model="currentConfig?.main_model"
-            :nsfw-enabled="nsfwEnabled"
-            @update:model-value="(v: LoraEntry[]) => values[f.key] = v"
-          />
-          <el-input-number
-            v-else-if="f.type === 'number'"
-            :model-value="values[f.key] as number | undefined"
-            @update:model-value="(v: number | undefined) => values[f.key] = (v ?? 0)"
-            :min="f.min"
-            :max="f.max"
-            :step="f.step"
-            controls-position="right"
-            style="width: 100%"
-          />
-          <el-select
-            v-else-if="f.type === 'select'"
-            :model-value="values[f.key]"
-            @update:model-value="(v: string | number) => values[f.key] = v"
-            style="width: 100%"
-          >
-            <el-option
-              v-for="opt in loraOptions(f)"
-              :key="opt"
-              :value="opt"
-              :label="opt"
+            <LoraArrayField
+              v-if="isLoraArrayField(f)"
+              :model-value="(values[f.key] as LoraEntry[]) ?? []"
+              :loras="loras"
+              :main-model="currentConfig?.main_model"
+              :nsfw-enabled="nsfwEnabled"
+              @update:model-value="(v: LoraEntry[]) => values[f.key] = v"
             />
-          </el-select>
-          <el-input
-            v-else
-            type="textarea"
-            :rows="8"
-            :model-value="values[f.key]"
-            @update:model-value="(v: string) => values[f.key] = v ?? ''"
-          />
-          <div v-if="isLoraField(f) && autoTriggerPreview" class="cc-trigger-hint">
-            {{ autoTriggerPreview }}
-          </div>
+            <el-select
+              v-else-if="isLoraField(f)"
+              :model-value="values[f.key]"
+              @update:model-value="(v: string | number) => values[f.key] = v"
+              style="width: 100%"
+            >
+              <el-option
+                v-for="opt in loraOptions(f)"
+                :key="opt"
+                :value="opt"
+                :label="opt"
+              />
+            </el-select>
+            <el-input-number
+              v-else-if="f.type === 'number'"
+              :model-value="values[f.key] as number | undefined"
+              @update:model-value="(v: number | undefined) => values[f.key] = (v ?? 0)"
+              :min="f.min"
+              :max="f.max"
+              :step="f.step"
+              controls-position="right"
+              style="width: 100%"
+            />
+            <el-select
+              v-else-if="f.type === 'select'"
+              :model-value="values[f.key]"
+              @update:model-value="(v: string | number) => values[f.key] = v"
+              style="width: 100%"
+            >
+              <el-option
+                v-for="opt in loraOptions(f)"
+                :key="opt"
+                :value="opt"
+                :label="opt"
+              />
+            </el-select>
+            <el-input
+              v-else
+              type="textarea"
+              :rows="8"
+              :model-value="values[f.key]"
+              @update:model-value="(v: string) => values[f.key] = v ?? ''"
+            />
+            <div v-if="isLoraField(f) && autoTriggerPreview" class="cc-trigger-hint">
+              {{ autoTriggerPreview }}
+            </div>
+          </template>
         </el-form-item>
         </el-form>
       </div>
