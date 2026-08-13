@@ -13,6 +13,7 @@ const removed = ref<Set<string>>(new Set());
 const loading = ref(true);
 const saving = ref(false);
 const error = ref<string | null>(null);
+const staleConfigNotice = ref<string | null>(null);
 
 const DEFAULT_CHECKED_KEYS = new Set(["seed", "width", "height"]);
 const DEFAULT_CHECKED_LABELS = new Set(["正面提示词", "负面提示词"]);
@@ -23,30 +24,52 @@ function isDefaultChecked(f: GenerationField): boolean {
   return false;
 }
 
-function initRemoved(fields: GenerationField[]): Set<string> {
-  const set = new Set<string>();
-  for (const f of fields) {
-    if (!isDefaultChecked(f)) set.add(f.key);
-  }
-  return set;
+function isLoraField(f: GenerationField): boolean {
+  return f.input_name === "lora_name" || f.key === "lora_name";
 }
 
 onMounted(async () => {
   removed.value = new Set();
+  staleConfigNotice.value = null;
   try {
     const d = await api.workflows.generationConfig.discover(props.workflowId);
     fields.value = d.fields;
     apiTemplate.value = d.api_template;
     const existing = await api.workflows.generationConfig.get(props.workflowId);
     if (existing && existing.fields.length > 0) {
-      // 已有配置: 以已保存的字段为准决定勾选态,其余候选字段未勾选
       const savedKeys = new Set(existing.fields.map((f) => f.key));
       removed.value = new Set(
         d.fields.filter((f) => !savedKeys.has(f.key)).map((f) => f.key),
       );
+      const isArrayByKey = new Map<string, boolean>();
+      for (const ef of existing.fields) {
+        if (typeof ef.is_array === "boolean") isArrayByKey.set(ef.key, ef.is_array);
+      }
+      // 加载已保存的 is_array;LoRA 字段如果老 config 没显式设过,默认开启
+      for (const f of fields.value) {
+        if (isArrayByKey.has(f.key)) {
+          f.is_array = isArrayByKey.get(f.key)!;
+        } else if (isLoraField(f)) {
+          f.is_array = true;
+        }
+      }
+      // 检测老格式:已存 config 含 strength_model 但 discover 没返回 = 旧 scalar LoRA 配置
+      const discoveredKeys = new Set(d.fields.map((f) => f.key));
+      const staleFields = existing.fields.filter(
+        (f) => !discoveredKeys.has(f.key) && f.input_name === "strength_model",
+      );
+      if (staleFields.length > 0) {
+        staleConfigNotice.value =
+          "检测到旧版 LoRA 配置(含独立 strength_model 字段),建议重新保存以启用新版多 LoRA 数组支持。";
+      }
     } else {
-      // 无配置: 默认勾选种子/宽高/正负提示词
-      removed.value = initRemoved(d.fields);
+      // 无配置: 默认勾选种子/宽高/正负提示词;LoRA 字段默认开启 is_array
+      const set = new Set<string>();
+      for (const f of d.fields) {
+        if (!isDefaultChecked(f)) set.add(f.key);
+        if (isLoraField(f)) f.is_array = true;
+      }
+      removed.value = set;
     }
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err);
@@ -58,6 +81,10 @@ onMounted(async () => {
 function toggleField(key: string, checked: boolean) {
   if (checked) removed.value.delete(key);
   else removed.value.add(key);
+}
+
+function toggleIsArray(f: GenerationField, checked: boolean) {
+  f.is_array = checked;
 }
 
 async function save() {
@@ -88,6 +115,14 @@ async function save() {
         选择要让「生成」页面显示的参数。取消勾选 = 生成时不显示。
       </div>
 
+      <el-alert
+        v-if="staleConfigNotice"
+        :title="staleConfigNotice"
+        type="warning"
+        :closable="false"
+        show-icon
+      />
+
       <div v-if="fields.length === 0 && !error" class="cc-empty">
         未发现可填参数。请确认工作流已保存为 ComfyUI 格式。
       </div>
@@ -104,8 +139,14 @@ async function save() {
         <el-tag size="small" type="info" class="cc-type-tag">{{ f.type }}</el-tag>
         <span class="cc-label">{{ f.label }}</span>
         <span class="cc-key">{{ f.key }}</span>
-        <el-checkbox v-model="f.required" class="cc-required" size="small">
-          必填
+        <el-checkbox
+          v-if="isLoraField(f)"
+          :model-value="!!f.is_array"
+          class="cc-array"
+          size="small"
+          @update:model-value="(v: boolean) => toggleIsArray(f, v)"
+        >
+          数组
         </el-checkbox>
         <span v-if="f.options && f.options.length" class="cc-range" :title="f.options.join(', ')">
           {{ f.options.length }} 项可选

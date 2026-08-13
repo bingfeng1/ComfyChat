@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { CircleClose, Loading } from "@element-plus/icons-vue";
+import LoraArrayField from "@/components/LoraArrayField.vue";
 import Modal from "@/components/Modal.vue";
 import { useNsfwFilter } from "@/composables/useNsfwFilter";
 import { api } from "@/services/api";
 import type { GenerationConfigSummary, GenerationField, GenerationStatus, GenerationSummary } from "@/types/api";
-import type { LoraSummary } from "@/types/api";
+import type { LoraEntry, LoraSummary } from "@/types/api";
 
 const props = defineProps<{
   preset?: GenerationSummary | null;
@@ -20,7 +21,7 @@ const configs = ref<GenerationConfigSummary[]>([]);
 const loras = ref<LoraSummary[]>([]);
 const { enabled: nsfwEnabled } = useNsfwFilter();
 const workflowId = ref("");
-const values = ref<Record<string, string | number>>({});
+const values = ref<Record<string, string | number | LoraEntry[]>>({});
 const randomFlags = ref<Record<string, boolean>>({});
 const autoAddTrigger = ref(true);
 const submitting = ref(false);
@@ -164,6 +165,14 @@ onMounted(async () => {
       /* LoRA 列表不可用时不阻塞生成流程 */
     }
     configs.value = (await api.workflows.generationConfigs()).items;
+    // 隐式迁移: 若 lora 字段老 config 没显式设 is_array, 视为 array
+    for (const cfg of configs.value) {
+      for (const f of cfg.fields) {
+        if (isLoraField(f) && f.is_array === undefined) {
+          f.is_array = true;
+        }
+      }
+    }
     if (configs.value.length > 0) {
       if (
         props.preselectWorkflowId &&
@@ -194,16 +203,31 @@ function selectWorkflow(id: string) {
   if (props.preset && props.preset.workflow_id === id) {
     const p = props.preset.parameters;
     for (const f of fields.value) {
-      const v = p[f.key];
-      if (typeof v === "string" || typeof v === "number") values.value[f.key] = v;
+      if (f.is_array && f.input_name === "lora_name") {
+        // LoRA 数组字段:preset 可能存的是 scalar(老格式)或 list(新格式)
+        const raw = p[f.key];
+        if (Array.isArray(raw)) {
+          values.value[f.key] = raw as LoraEntry[];
+        } else if (typeof raw === "string" && raw) {
+          values.value[f.key] = [{ lora_name: raw, strength_model: Number(p["strength_model"] ?? 1) }];
+        } else {
+          values.value[f.key] = [];
+        }
+      } else {
+        const v = p[f.key];
+        if (typeof v === "string" || typeof v === "number") values.value[f.key] = v;
+      }
       randomFlags.value[`${f.key}_random`] = Boolean(p[`${f.key}_random`]);
     }
     autoAddTrigger.value = p["auto_add_trigger"] !== false;
   } else {
     autoAddTrigger.value = true;
     for (const f of fields.value) {
-      // 非 seed 字段填工作流默认值;seed 默认勾选随机,不填工作流的固定种子
-      if (f.type !== "seed" && (typeof f.default === "string" || typeof f.default === "number")) {
+      if (f.is_array && f.input_name === "lora_name") {
+        // 默认从工作流 api_template 提取当前 LoRA 配置(若有)
+        const defaultEntries = extractDefaultLoraEntries(f);
+        values.value[f.key] = defaultEntries;
+      } else if (f.type !== "seed" && (typeof f.default === "string" || typeof f.default === "number")) {
         values.value[f.key] = f.default;
       }
       randomFlags.value[`${f.key}_random`] = f.type === "seed";
@@ -211,9 +235,37 @@ function selectWorkflow(id: string) {
   }
 }
 
-function isLoraField(f: GenerationField): boolean {
-  return f.key === "lora_name";
+function extractDefaultLoraEntries(f: GenerationField): LoraEntry[] {
+  // 从当前工作流的 api_template 里拿 anchor node 的初始 lora_name / strength_model
+  // 仅作 best-effort,未找到则给空数组
+  const wf = configs.value.find((c) => c.workflow_id === workflowId.value);
+  if (!wf) return [];
+  const apiTemplate = wf.api_template;
+  if (!apiTemplate) return [];
+  const node = apiTemplate[f.node_id] as { inputs?: Record<string, unknown> } | undefined;
+  if (!node || !node.inputs) return [];
+  const lora = node.inputs["lora_name"];
+  const strength = node.inputs["strength_model"];
+  if (typeof lora !== "string" || !lora) return [];
+  return [{ lora_name: lora, strength_model: Number(strength ?? 1) }];
 }
+
+function isLoraField(f: GenerationField): boolean {
+  return f.input_name === "lora_name" || f.key === "lora_name";
+}
+
+function isLoraArrayField(f: GenerationField): boolean {
+  return f.is_array === true && isLoraField(f);
+}
+
+// 隐藏 strength_model 字段:若同 node_id 同一 lora 字段 is_array,strength 由 LoraEntry 自带
+const loraArrayNodeIds = computed(() => {
+  const set = new Set<string>();
+  for (const f of fields.value) {
+    if (isLoraArrayField(f)) set.add(f.node_id);
+  }
+  return set;
+});
 
 function loraOptions(f: GenerationField): string[] {
   if (!isLoraField(f)) return f.options ?? [];
@@ -375,14 +427,27 @@ function showThumbnail(url: string) {
 
 const autoTriggerPreview = computed(() => {
   if (!autoAddTrigger.value) return "";
-  const loraName = values.value["lora_name"];
-  if (typeof loraName !== "string" || !loraName) return "";
-  const lora = loras.value.find((l) => l.name === loraName);
-  const strength = Number(values.value["strength_model"] ?? 1);
-  if (!lora || !lora.trigger_words || strength <= 0) return "";
   const text = typeof values.value["text"] === "string" ? values.value["text"] : "";
-  if (text.toLowerCase().includes(lora.trigger_words.toLowerCase())) return "";
-  return lora.trigger_words;
+  const triggers: string[] = [];
+  const seen = new Set<string>();
+  for (const f of fields.value) {
+    if (!isLoraArrayField(f)) continue;
+    const entries = values.value[f.key];
+    if (!Array.isArray(entries)) continue;
+    for (const entry of entries) {
+      if (!entry || typeof entry.lora_name !== "string" || !entry.lora_name) continue;
+      const strength = Number(entry.strength_model ?? 1);
+      if (strength <= 0) continue;
+      const lora = loras.value.find((l) => l.name === entry.lora_name);
+      if (!lora || !lora.trigger_words) continue;
+      const t = lora.trigger_words;
+      if (seen.has(t)) continue;
+      if (text.toLowerCase().includes(t.toLowerCase())) continue;
+      seen.add(t);
+      triggers.push(t);
+    }
+  }
+  return triggers.join("\n");
 });
 </script>
 
@@ -498,7 +563,11 @@ const autoTriggerPreview = computed(() => {
         </el-form-item>
 
         <el-form-item
-          v-for="f in fields.filter((x) => !(x.key === 'width' || x.key === 'height'))"
+          v-for="f in fields.filter((x) => !(
+            x.key === 'width' ||
+            x.key === 'height' ||
+            (x.input_name === 'strength_model' && loraArrayNodeIds.has(x.node_id))
+          ))"
           :key="f.key"
           :label="f.label"
           :required="f.required"
@@ -520,6 +589,22 @@ const autoTriggerPreview = computed(() => {
               />
             </div>
           </template>
+          <template v-else-if="isLoraField(f)">
+            <div class="cc-lora-toggle">
+              <el-checkbox
+                :model-value="autoAddTrigger"
+                @update:model-value="(v: boolean) => autoAddTrigger = v"
+              >自动添加 LoRA 触发词</el-checkbox>
+            </div>
+          </template>
+          <LoraArrayField
+            v-else-if="isLoraArrayField(f)"
+            :model-value="(values[f.key] as LoraEntry[]) ?? []"
+            :loras="loras"
+            :main-model="currentConfig?.main_model"
+            :nsfw-enabled="nsfwEnabled"
+            @update:model-value="(v: LoraEntry[]) => values[f.key] = v"
+          />
           <el-input-number
             v-else-if="f.type === 'number'"
             :model-value="values[f.key] as number | undefined"
@@ -550,11 +635,8 @@ const autoTriggerPreview = computed(() => {
             :model-value="values[f.key]"
             @update:model-value="(v: string) => values[f.key] = v ?? ''"
           />
-          <div v-if="isLoraField(f)" class="cc-lora-toggle">
-            <el-checkbox
-              :model-value="autoAddTrigger"
-              @update:model-value="(v: boolean) => autoAddTrigger = v"
-            >自动添加 LoRA 触发词</el-checkbox>
+          <div v-if="isLoraField(f) && autoTriggerPreview" class="cc-trigger-hint">
+            {{ autoTriggerPreview }}
           </div>
         </el-form-item>
         </el-form>
