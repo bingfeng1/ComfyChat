@@ -522,30 +522,34 @@ class GenerationService:
     ) -> list[str]:
         """从 history entry 下载图片到 outputs 目录,返回保存的文件名列表。
 
-        单张图片下载失败会立即终止整个 gen(标记 failed),避免半完成状态。
+        单张图片下载失败会重试一次;连续失败则跳过该张并继续处理后续图片。
         """
         out_dir = self.outputs_dir(gen)
         out_dir.mkdir(parents=True, exist_ok=True)
         saved: list[str] = []
-        repo = GenerationRepository(session)
         for img in collect_images(entry):
             filename = Path(img["filename"]).name
             if not filename:
                 continue
-            try:
-                data = self.comfyui.get_image(
-                    img["filename"],
-                    img.get("subfolder", ""),
-                    img.get("type", "output"),
-                )
-            except Exception as exc:
-                repo.mark_failed(
-                    gen.id, f"下载图片失败: {filename}: {exc}"
-                )
-                return []
-            target = self._dedup_target(out_dir, filename)
-            target.write_bytes(data)
-            saved.append(target.name)
+            success = False
+            for attempt in range(2):
+                try:
+                    data = self.comfyui.get_image(
+                        img["filename"],
+                        img.get("subfolder", ""),
+                        img.get("type", "output"),
+                    )
+                    target = self._dedup_target(out_dir, filename)
+                    target.write_bytes(data)
+                    saved.append(target.name)
+                    success = True
+                    break
+                except Exception:
+                    if attempt == 0:
+                        time.sleep(1)
+                        continue
+            if not success:
+                continue
         return saved
 
     def reconcile(self) -> None:

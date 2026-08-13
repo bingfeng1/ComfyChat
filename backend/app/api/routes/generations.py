@@ -54,7 +54,10 @@ def list_generations(
     exclude_nsfw: bool = False,
     service: GenerationService = Depends(_service),
 ) -> GenerationListOut:
-    service.reconcile()
+    try:
+        service.reconcile()
+    except Exception:
+        pass
     items = service.gen_repo.list(
         status=status, page=page, page_size=page_size,
         exclude_nsfw=exclude_nsfw,
