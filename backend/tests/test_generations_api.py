@@ -51,7 +51,7 @@ def test_generation_flow(tmp_path, monkeypatch):
 
     class FakeComfy:
         def submit_prompt(self, prompt):
-            return "p-1"
+            return "p-1", "c-1"
         def get_history(self, prompt_id):
             return {"p-1": {"status": {"status_str": "success"}, "outputs": {"9": {"images": [{"filename": "out.png", "subfolder": "", "type": "output"}]}}}}
         def get_image(self, filename, subfolder="", image_type="output"):
@@ -141,10 +141,10 @@ def test_cancel_deletes_record_and_returns_204(tmp_path, monkeypatch):
 
     class FakeComfy:
         def submit_prompt(self, prompt):
-            return "p-1"
+            return "p-1", "c-1"
         def get_history(self, prompt_id):
             return {}
-        def wait_for_history(self, prompt_id, *, timeout=1800.0):
+        def wait_for_history(self, prompt_id, *, timeout=1800.0, client_id=None):
             raise ComfyUIError("stub: WS never resolves in this test")
         def interrupt(self):
             pass
@@ -184,7 +184,7 @@ def test_cancel_returns_409_for_terminal(tmp_path, monkeypatch):
 
     class FakeComfy:
         def submit_prompt(self, prompt):
-            return "p-1"
+            return "p-1", "c-1"
         def get_history(self, prompt_id):
             return {"p-1": {"status": {"status_str": "success"}, "outputs": {}}}
         def get_image(self, filename, subfolder="", image_type="output"):

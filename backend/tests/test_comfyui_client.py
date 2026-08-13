@@ -102,12 +102,14 @@ def test_submit_prompt(monkeypatch):
     client = ComfyUIClient(Settings(comfyui_base_url="http://example.com:8188/"))
 
     prompt = {"3": {"class_type": "KSampler", "inputs": {"seed": 1}}}
-    result = client.submit_prompt(prompt)
+    prompt_id, client_id = client.submit_prompt(prompt)
 
-    assert result == "abc123"
+    assert prompt_id == "abc123"
+    assert isinstance(client_id, str) and len(client_id) > 0
     assert calls[0][0] == "post"
     assert calls[0][1].endswith("/prompt")
-    assert calls[0][2] == {"prompt": prompt}
+    assert calls[0][2]["prompt"] == prompt
+    assert calls[0][2]["client_id"] == client_id
 
 
 def test_submit_prompt_missing_prompt_id_raises(monkeypatch):

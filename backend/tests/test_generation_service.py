@@ -90,7 +90,7 @@ class FakeComfy:
 
     def submit_prompt(self, prompt):
         self.submitted = prompt
-        return "p-1"
+        return "p-1", "client-1"
 
     def get_history(self, prompt_id):
         return self.history
@@ -98,7 +98,7 @@ class FakeComfy:
     def get_queue(self):
         return self.queue
 
-    def wait_for_history(self, prompt_id, *, timeout=1800.0):
+    def wait_for_history(self, prompt_id, *, timeout=1800.0, client_id=None):
         if self.wait_history_should_fail and self.history.get(prompt_id) is None:
             raise ComfyUIError("WS wait failed and /history empty")
         return self.history.get(prompt_id) or {}

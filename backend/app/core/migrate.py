@@ -19,6 +19,14 @@ def migrate(engine: Engine) -> None:
         col_type="INTEGER",
         default="0",
     )
+    _ensure_column(
+        engine,
+        "generations",
+        "client_id",
+        col_type="VARCHAR(64)",
+        default="NULL",
+        nullable=True,
+    )
 
 
 def _ensure_column(
@@ -28,15 +36,17 @@ def _ensure_column(
     *,
     col_type: str = "BOOLEAN",
     default: str = "0",
+    nullable: bool = False,
 ) -> None:
     with engine.begin() as conn:
         rows = conn.execute(text(f"PRAGMA table_info({table})")).fetchall()
         names = {row[1] for row in rows}
         if column in names:
             return
+        null_clause = "" if nullable else " NOT NULL"
         conn.execute(
             text(
                 f"ALTER TABLE {table} ADD COLUMN {column} "
-                f"{col_type} NOT NULL DEFAULT {default}"
+                f"{col_type}{null_clause} DEFAULT {default}"
             )
         )

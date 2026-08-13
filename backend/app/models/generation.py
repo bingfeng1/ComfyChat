@@ -24,6 +24,7 @@ class Generation(Base):
     parameters_json: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="queued")
     prompt_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    client_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     outputs_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     poll_miss_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

@@ -372,7 +372,7 @@ class GenerationService:
         )
         if auto_add_trigger:
             append_lora_trigger(filled, fields, effective, self.gen_repo.session)
-        prompt_id = self.comfyui.submit_prompt(filled)
+        prompt_id, client_id = self.comfyui.submit_prompt(filled)
         wf = WorkflowRepository(self.gen_repo.session).get(workflow_id)
         wf_name = wf.name if wf else workflow_id
         return self.gen_repo.create(
@@ -381,6 +381,7 @@ class GenerationService:
             parameters=effective,
             status="queued",
             prompt_id=prompt_id,
+            client_id=client_id,
         )
 
     def cancel(self, generation_id: str) -> Generation:
@@ -473,7 +474,9 @@ class GenerationService:
 
                 try:
                     entry = self.comfyui.wait_for_history(
-                        gen.prompt_id, timeout=timeout
+                        gen.prompt_id,
+                        timeout=timeout,
+                        client_id=gen.client_id,
                     )
                 except ComfyUIError as exc:
                     # WS 失败(超时/断连)。回退到一次性 /history 查询。

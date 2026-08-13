@@ -75,13 +75,22 @@ class ComfyUIClient:
         except Exception as exc:
             raise ComfyUIError(f"ComfyUI request failed ({method} {path}): {exc}") from exc
 
-    def submit_prompt(self, prompt: dict) -> str:
-        response = self._request("post", "/prompt", json={"prompt": prompt})
+    def submit_prompt(self, prompt: dict) -> tuple[str, str]:
+        """提交 prompt 到 ComfyUI, 返回 (prompt_id, client_id)。
+
+        client_id 必须与 wait_for_history 时连接 /ws 使用的 client_id 一致,
+        ComfyUI 只向这个 client_id 推送 executing / execution_error 事件。
+        """
+        client_id = uuid.uuid4().hex
+        response = self._request(
+            "post", "/prompt",
+            json={"prompt": prompt, "client_id": client_id},
+        )
         data = response.json()
         prompt_id = data.get("prompt_id")
         if not prompt_id:
             raise ComfyUIError(f"ComfyUI /prompt returned no prompt_id: {data}")
-        return prompt_id
+        return prompt_id, client_id
 
     def _ws_base(self) -> str:
         """Convert HTTP base_url to ws:// or wss:// for /ws endpoint."""
@@ -98,17 +107,23 @@ class ComfyUIClient:
         prompt_id: str,
         *,
         timeout: float = 1800.0,
+        client_id: Optional[str] = None,
     ) -> dict:
         """Block until ComfyUI signals completion of prompt_id via WebSocket.
 
         Returns the history entry dict (caller checks status.status_str).
         Raises ComfyUIError on timeout, WS connect failure, or disconnect.
 
+        client_id 必须与 submit_prompt 时传给 /prompt 的 client_id 一致,
+        否则 ComfyUI 不会向这个 WS 连接推送该 prompt 的执行事件 —— 这是
+        ComfyUI 的协议:事件路由到显式订阅的 client_id。未传 client_id 时
+        回退到随机 UUID(可能错过事件,会一直挂到超时)。
+
         Strategy:
         1. If /history already has an entry (prompt completed before we
            connected, or this is a reconnect attempt), return it.
-        2. Connect to /ws?clientId=<uuid>, listen for events filtered by
-           prompt_id. On executing{node:null} or execution_error, fetch
+        2. Connect to /ws?clientId=<client_id>, listen for events filtered
+           by prompt_id. On executing{node:null} or execution_error, fetch
            /history and return.
         """
         if not self._base_url:
@@ -119,7 +134,8 @@ class ComfyUIClient:
         if entry is not None:
             return entry
 
-        ws_url = f"{self._ws_base()}/ws?clientId={uuid.uuid4().hex}"
+        ws_client_id = client_id or uuid.uuid4().hex
+        ws_url = f"{self._ws_base()}/ws?clientId={ws_client_id}"
         deadline = time.monotonic() + timeout
         try:
             with _ws_connect(ws_url, open_timeout=min(10.0, max(1.0, timeout))) as ws:

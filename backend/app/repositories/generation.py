@@ -27,6 +27,7 @@ class GenerationRepository:
         parameters: dict,
         status: str,
         prompt_id: str,
+        client_id: str | None = None,
     ) -> Generation:
         gen = Generation(
             workflow_id=workflow_id,
@@ -34,6 +35,7 @@ class GenerationRepository:
             parameters_json=json.dumps(parameters, ensure_ascii=False),
             status=status,
             prompt_id=prompt_id,
+            client_id=client_id,
         )
         self.session.add(gen)
         self.session.commit()
