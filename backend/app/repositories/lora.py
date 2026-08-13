@@ -98,3 +98,26 @@ class LoraRepository:
     def names(self) -> set[str]:
         stmt = select(Lora.name)
         return {n for (n,) in self.session.execute(stmt).all()}
+
+    def update_nsfw(self, name: str, is_nsfw: bool) -> None:
+        lora = self.session.get(Lora, name)
+        if lora is None:
+            return
+        lora.is_nsfw = is_nsfw
+        lora.updated_at = _utcnow()
+        self.session.commit()
+
+    def update_trigger_words(self, name: str, trigger_words: Optional[str]) -> None:
+        lora = self.session.get(Lora, name)
+        if lora is None:
+            return
+        lora.trigger_words = (trigger_words or "").strip() or None
+        lora.updated_at = _utcnow()
+        self.session.commit()
+
+    def get_trigger_words(self, name: str) -> Optional[str]:
+        """返回指定 LoRA 的 trigger_words(无记录或为空返回 None)。"""
+        lora = self.session.get(Lora, name)
+        if lora is None:
+            return None
+        return lora.trigger_words or None

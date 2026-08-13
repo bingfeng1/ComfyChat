@@ -93,11 +93,12 @@ export const api = {
     },
   },
   generations: {
-    list: (params?: { status?: GenerationStatus; page?: number; page_size?: number }) => {
+    list: (params?: { status?: GenerationStatus; page?: number; page_size?: number; exclude_nsfw?: boolean }) => {
       const sp = new URLSearchParams();
       if (params?.status) sp.set("status", params.status);
       if (params?.page) sp.set("page", String(params.page));
       if (params?.page_size) sp.set("page_size", String(params.page_size));
+      if (params?.exclude_nsfw) sp.set("exclude_nsfw", "true");
       const qs = sp.toString() ? `?${sp.toString()}` : "";
       return get<GenerationList>(`/generations${qs}`);
     },
@@ -120,5 +121,17 @@ export const api = {
   },
   loras: {
     list: () => get<LoraList>("/lora"),
+    updateNsfw: (name: string, isNsfw: boolean) =>
+      request(`/lora/${encodeURIComponent(name)}/nsfw`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ is_nsfw: isNsfw }),
+      }),
+    updateTrigger: (name: string, triggerWords: string | null) =>
+      request(`/lora/${encodeURIComponent(name)}/trigger`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ trigger_words: triggerWords }),
+      }),
   },
 };

@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, reactive, ref } from "vue";
 import { Refresh, Search } from "@element-plus/icons-vue";
 import { api } from "@/services/api";
+import { useNsfwFilter } from "@/composables/useNsfwFilter";
 import type { LoraSummary } from "@/types/api";
 
 const items = ref<LoraSummary[]>([]);
@@ -11,9 +12,14 @@ const search = ref("");
 const familyFilter = ref("");
 const boundFilter = ref("");
 const deletedFilter = ref("");
+const { enabled: nsfwEnabled } = useNsfwFilter();
 
 const BINDING_GUIDE_URL = "/docs/lora-ai-binding-guide.md";
 const guideNotice = ref(true);
+
+// Inline trigger-word edit state, keyed by lora name.
+const triggerEdit = reactive<Record<string, { draft: string; saving: boolean }>>({});
+const editingName = ref<string | null>(null);
 
 async function load() {
   loading.value = true;
@@ -51,9 +57,50 @@ const filteredItems = computed(() => {
     if (boundFilter.value === "unbound" && it.models.length > 0) return false;
     if (deletedFilter.value === "deleted" && !it.deleted_from_comfyui) return false;
     if (deletedFilter.value === "active" && it.deleted_from_comfyui) return false;
+    if (!nsfwEnabled.value && it.is_nsfw) return false;
     return true;
   });
 });
+
+async function toggleLoraNsfw(row: LoraSummary, targetValue?: boolean) {
+  const newValue = targetValue ?? !row.is_nsfw;
+  try {
+    await api.loras.updateNsfw(row.name, newValue);
+    row.is_nsfw = newValue;
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : String(err);
+  }
+}
+
+function startEditTrigger(row: LoraSummary) {
+  editingName.value = row.name;
+  triggerEdit[row.name] = { draft: row.trigger_words ?? "", saving: false };
+}
+
+function cancelEditTrigger(name: string) {
+  delete triggerEdit[name];
+  if (editingName.value === name) editingName.value = null;
+}
+
+async function commitEditTrigger(row: LoraSummary) {
+  const state = triggerEdit[row.name];
+  if (!state) return;
+  const next = state.draft.trim();
+  const current = (row.trigger_words ?? "").trim();
+  if (next === current) {
+    cancelEditTrigger(row.name);
+    return;
+  }
+  state.saving = true;
+  try {
+    await api.loras.updateTrigger(row.name, next || null);
+    row.trigger_words = next || null;
+    cancelEditTrigger(row.name);
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : String(err);
+    state.saving = false;
+  }
+}
 
 onMounted(load);
 </script>
@@ -111,6 +158,18 @@ onMounted(load);
     </div>
 
     <el-table :data="filteredItems" v-loading="loading" stripe style="width: 100%">
+      <el-table-column v-if="nsfwEnabled" label="NSFW" width="100">
+        <template #default="{ row }">
+          <el-switch
+            :model-value="row.is_nsfw"
+            @update:model-value="(val: boolean | string | number) => toggleLoraNsfw(row, Boolean(val))"
+            inline-prompt
+            active-text="是"
+            inactive-text="否"
+            style="--el-switch-width: 56px"
+          />
+        </template>
+      </el-table-column>
       <el-table-column label="文件名" min-width="280">
         <template #default="{ row }">
           <span :class="['cc-name', { 'cc-deleted-name': row.deleted_from_comfyui }]">
@@ -147,6 +206,30 @@ onMounted(load);
             class="cc-url"
           >{{ row.source_url }}</a>
           <span v-else class="cc-muted">—</span>
+        </template>
+      </el-table-column>
+      <el-table-column label="触发词" min-width="200">
+        <template #default="{ row }">
+          <template v-if="editingName === row.name">
+            <el-input
+              v-model="triggerEdit[row.name].draft"
+              size="small"
+              :loading="triggerEdit[row.name]?.saving"
+              placeholder="触发词,空格分隔多个"
+              class="cc-trigger-input"
+              @blur="commitEditTrigger(row)"
+              @keyup.enter="(e: Event) => (e.target as HTMLInputElement).blur()"
+              @keyup.escape="cancelEditTrigger(row.name)"
+            />
+          </template>
+          <span
+            v-else
+            class="cc-trigger-cell"
+            :title="row.trigger_words ? '双击编辑' : '双击添加触发词'"
+            @dblclick="startEditTrigger(row)"
+          >
+            {{ row.trigger_words || "—" }}
+          </span>
         </template>
       </el-table-column>
       <template #empty>
@@ -206,5 +289,24 @@ onMounted(load);
 }
 .cc-deleted-tag {
   margin-left: 6px;
+}
+.cc-trigger-cell {
+  cursor: text;
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px dashed transparent;
+  max-width: 100%;
+  word-break: break-word;
+}
+.cc-trigger-cell:hover {
+  border-color: #cbd5e1;
+  background-color: rgba(14, 165, 233, 0.04);
+}
+.cc-muted.cc-trigger-cell:hover {
+  background-color: rgba(203, 213, 225, 0.08);
+}
+.cc-trigger-input {
+  width: 100%;
 }
 </style>

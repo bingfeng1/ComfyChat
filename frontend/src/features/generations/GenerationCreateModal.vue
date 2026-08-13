@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { CircleClose, Loading } from "@element-plus/icons-vue";
 import Modal from "@/components/Modal.vue";
+import { useNsfwFilter } from "@/composables/useNsfwFilter";
 import { api } from "@/services/api";
 import type { GenerationConfigSummary, GenerationField, GenerationStatus, GenerationSummary } from "@/types/api";
 import type { LoraSummary } from "@/types/api";
@@ -17,10 +18,11 @@ const loading = ref(true);
 const fetchError = ref<string | null>(null);
 const configs = ref<GenerationConfigSummary[]>([]);
 const loras = ref<LoraSummary[]>([]);
-const showAllLoras = ref(false);
+const { enabled: nsfwEnabled } = useNsfwFilter();
 const workflowId = ref("");
 const values = ref<Record<string, string | number>>({});
 const randomFlags = ref<Record<string, boolean>>({});
+const autoAddTrigger = ref(true);
 const submitting = ref(false);
 const submitError = ref<string | null>(null);
 const activeGenId = ref<string | null>(null);
@@ -199,7 +201,9 @@ function selectWorkflow(id: string) {
       if (typeof v === "string" || typeof v === "number") values.value[f.key] = v;
       randomFlags.value[`${f.key}_random`] = Boolean(p[`${f.key}_random`]);
     }
+    autoAddTrigger.value = p["auto_add_trigger"] !== false;
   } else {
+    autoAddTrigger.value = true;
     for (const f of fields.value) {
       // 非 seed 字段填工作流默认值;seed 默认勾选随机,不填工作流的固定种子
       if (f.type !== "seed" && (typeof f.default === "string" || typeof f.default === "number")) {
@@ -216,13 +220,24 @@ function isLoraField(f: GenerationField): boolean {
 
 function loraOptions(f: GenerationField): string[] {
   if (!isLoraField(f)) return f.options ?? [];
-  const all = f.options ?? [];
-  const mainModel = currentConfig.value?.main_model;
-  if (!mainModel || showAllLoras.value) return all;
-  const filtered = loras.value
-    .filter((l) => l.models.includes(mainModel))
+  // 候选源: DB 里活跃的 LoRA(`deleted_from_comfyui=false`)。
+  // 不要用 f.options —— 那是工作流配置保存时的快照,之后新装的 LoRA 不在里面。
+  // DB sync 会保持 loras.value 与 ComfyUI 实际安装列表一致,这里不需要二次过滤。
+  const candidates = loras.value
+    .filter((l) => !l.deleted_from_comfyui)
     .map((l) => l.name);
-  return filtered.length > 0 ? filtered : all;
+  // NSFW 过滤
+  const nsfwFiltered = nsfwEnabled.value ? candidates : candidates.filter((name) => {
+    const lora = loras.value.find((l) => l.name === name);
+    return lora && !lora.is_nsfw;
+  });
+  const mainModel = currentConfig.value?.main_model;
+  if (!mainModel) return nsfwFiltered;
+  const filtered = nsfwFiltered
+    .map((name) => loras.value.find((l) => l.name === name))
+    .filter((l) => l && l.models.includes(mainModel))
+    .map((l) => l!.name);
+  return filtered.length > 0 ? filtered : nsfwFiltered;
 }
 
 function onWorkflowChange(id: string | number) {
@@ -270,6 +285,7 @@ async function submit() {
         if (isSeed) parameters[`${f.key}_random`] = false;
       }
     }
+    parameters["auto_add_trigger"] = autoAddTrigger.value;
     const res = await api.generations.create({ workflow_id: workflowId.value, parameters });
     if (res.status !== 201) {
       const data = await res.json().catch(() => null);
@@ -365,6 +381,18 @@ function paramDisplay(f: GenerationField): string {
   if (v === undefined || v === null || v === "") return "—";
   return String(v);
 }
+
+const autoTriggerPreview = computed(() => {
+  if (!autoAddTrigger.value) return "";
+  const loraName = values.value["lora_name"];
+  if (typeof loraName !== "string" || !loraName) return "";
+  const lora = loras.value.find((l) => l.name === loraName);
+  const strength = Number(values.value["strength_model"] ?? 1);
+  if (!lora || !lora.trigger_words || strength <= 0) return "";
+  const text = typeof values.value["text"] === "string" ? values.value["text"] : "";
+  if (text.toLowerCase().includes(lora.trigger_words.toLowerCase())) return "";
+  return lora.trigger_words;
+});
 </script>
 
 <template>
@@ -534,11 +562,11 @@ function paramDisplay(f: GenerationField): string {
             :model-value="values[f.key]"
             @update:model-value="(v: string) => values[f.key] = v ?? ''"
           />
-          <div v-if="isLoraField(f) && currentConfig?.main_model" class="cc-lora-toggle">
+          <div v-if="isLoraField(f)" class="cc-lora-toggle">
             <el-checkbox
-              :model-value="showAllLoras"
-              @update:model-value="(v: boolean) => showAllLoras = v"
-            >显示全部 LoRA</el-checkbox>
+              :model-value="autoAddTrigger"
+              @update:model-value="(v: boolean) => autoAddTrigger = v"
+            >自动添加 LoRA 触发词</el-checkbox>
           </div>
         </el-form-item>
         </el-form>
@@ -557,6 +585,17 @@ function paramDisplay(f: GenerationField): string {
             {{ paramDisplay(f) }}
           </el-descriptions-item>
         </el-descriptions>
+        <el-alert
+          v-if="autoTriggerPreview"
+          type="info"
+          :closable="false"
+          show-icon
+          class="cc-trigger-hint"
+        >
+          <template #title>
+            将自动在正面提示词中添加 LoRA 触发词:{{ autoTriggerPreview }}
+          </template>
+        </el-alert>
         <p v-if="fields.length === 0" class="cc-hint">此工作流无参数,直接生成。</p>
       </div>
 
@@ -733,6 +772,12 @@ function paramDisplay(f: GenerationField): string {
 }
 .cc-lora-toggle {
   margin-bottom: 0.25rem;
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+}
+.cc-trigger-hint {
+  margin-top: 0.25rem;
 }
 .cc-modal-body {
   display: flex;

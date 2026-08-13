@@ -3,7 +3,6 @@ from __future__ import annotations
 import contextlib
 import json
 import random
-import shutil
 import time
 import uuid
 from datetime import datetime, timezone
@@ -295,6 +294,47 @@ def apply_parameters(
     return filled, effective
 
 
+def append_lora_trigger(
+    filled: dict,
+    fields: list[dict],
+    effective: dict,
+    session: Session,
+) -> None:
+    """把已选 LoRA 的 trigger_words 追加到正面提示词节点(仅当 strength > 0)。
+
+    只改 filled(提交给 ComfyUI 的模板),不动 effective(入库参数)。
+    - 找不到 text 字段 / 无 LoRA / strength 缺失或 <= 0 / 无 trigger 时跳过。
+    - trigger 已存在于 text(大小写不敏感)时跳过去重。
+    - 追加格式:单独一行(f"{text}\\n{trigger}")。
+    """
+    text_field = next(
+        (f for f in fields if f.get("key") == "text" and f.get("type") == "text"),
+        None,
+    )
+    lora_name = effective.get("lora_name")
+    strength = effective.get("strength_model")
+    if text_field is None or not isinstance(lora_name, str) or not lora_name:
+        return
+    try:
+        if strength is None or float(strength) <= 0:
+            return
+    except (TypeError, ValueError):
+        return
+    from app.repositories.lora import LoraRepository
+
+    trigger = (LoraRepository(session).get_trigger_words(lora_name) or "").strip()
+    if not trigger:
+        return
+    node_id = str(text_field["node_id"])
+    input_name = text_field["input_name"]
+    inputs = filled.get(node_id, {}).get("inputs", {})
+    current = inputs.get(input_name) or ""
+    if trigger.lower() in str(current).lower():
+        return
+    separator = "" if not str(current).strip() else "\n"
+    inputs[input_name] = f"{current}{separator}{trigger}"
+
+
 def collect_images(history_entry: dict) -> list[dict]:
     images = []
     for node_output in (history_entry.get("outputs") or {}).values():
@@ -321,11 +361,15 @@ class GenerationService:
         cfg = self.config_repo.get_by_workflow(workflow_id)
         if cfg is None:
             raise ValueError("workflow not configured")
+        auto_add_trigger = bool(parameters.pop("auto_add_trigger", True))
+        fields = json.loads(cfg.fields_json)
         filled, effective = apply_parameters(
             json.loads(cfg.api_template),
-            json.loads(cfg.fields_json),
+            fields,
             parameters,
         )
+        if auto_add_trigger:
+            append_lora_trigger(filled, fields, effective, self.gen_repo.session)
         prompt_id = self.comfyui.submit_prompt(filled)
         wf = WorkflowRepository(self.gen_repo.session).get(workflow_id)
         wf_name = wf.name if wf else workflow_id
@@ -356,17 +400,47 @@ class GenerationService:
                     self.comfyui.interrupt()
             except ComfyUIError:
                 pass
-            out_dir = self.outputs_dir(gen)
-            if out_dir.exists():
-                shutil.rmtree(out_dir)
+            self._delete_outputs(gen)
             repo.delete(generation_id)
             return gen
 
     def outputs_dir(self, gen: Generation) -> Path:
-        if gen.id is None:
-            gen.id = uuid.uuid4().hex
-        ym = gen.created_at[:7]
-        return self.settings.storage_root / "outputs" / ym / gen.id
+        ym = (gen.created_at or "")[:7] or "unknown"
+        return self.settings.storage_root / "outputs" / ym
+
+    @staticmethod
+    def _dedup_target(out_dir: Path, filename: str) -> Path:
+        """若文件已存在(同月内其他 generation 也可能产出同名文件),
+        追加 _1/_2/... 后缀避免覆盖。"""
+        target = out_dir / filename
+        if not target.exists():
+            return target
+        stem = Path(filename).stem
+        suffix = Path(filename).suffix
+        for i in range(1, 1000):
+            candidate = out_dir / f"{stem}_{i}{suffix}"
+            if not candidate.exists():
+                return candidate
+        return out_dir / f"{stem}_{uuid.uuid4().hex[:8]}{suffix}"
+
+    def _delete_outputs(self, gen: Generation) -> None:
+        """删除该 generation 保存到 outputs 目录的文件。
+
+        目录结构是 outputs/{YYYY-MM}/<file> 平铺(无 gen_id 子目录),
+        所以只删 outputs_json 里记录的文件,绝不能 rmtree 整个月目录。
+        """
+        try:
+            files = json.loads(gen.outputs_json or "[]")
+        except (TypeError, ValueError):
+            files = []
+        out_dir = self.outputs_dir(gen)
+        for name in files:
+            try:
+                path = (out_dir / Path(str(name)).name)
+                if path.is_file():
+                    path.unlink()
+            except OSError:
+                continue
 
     @contextlib.contextmanager
     def _session_scope(self) -> Iterator[Session]:
@@ -468,8 +542,9 @@ class GenerationService:
                 except Exception as exc:
                     repo.mark_failed(gen.id, f"下载图片失败: {filename}: {exc}")
                     return True
-                (out_dir / filename).write_bytes(data)
-                saved.append(filename)
+                target = self._dedup_target(out_dir, filename)
+                target.write_bytes(data)
+                saved.append(target.name)
         repo.update_success(gen.id, saved)
         return True
 

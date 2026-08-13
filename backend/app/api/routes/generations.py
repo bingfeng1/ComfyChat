@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
@@ -52,13 +51,15 @@ def list_generations(
     status: str | None = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(15, ge=1, le=100),
+    exclude_nsfw: bool = False,
     service: GenerationService = Depends(_service),
 ) -> GenerationListOut:
     service.reconcile()
     items = service.gen_repo.list(
-        status=status, page=page, page_size=page_size
+        status=status, page=page, page_size=page_size,
+        exclude_nsfw=exclude_nsfw,
     )
-    total = service.gen_repo.count(status=status)
+    total = service.gen_repo.count(status=status, exclude_nsfw=exclude_nsfw)
     return GenerationListOut(
         items=[GenerationOut.from_model(g) for g in items],
         total=total,
@@ -121,8 +122,6 @@ def delete_generation(
     gen = service.gen_repo.get(generation_id)
     if gen is None:
         raise HTTPException(status_code=404, detail="Generation not found")
-    out_dir = service.outputs_dir(gen)
-    if out_dir.exists():
-        shutil.rmtree(out_dir)
+    service._delete_outputs(gen)
     service.gen_repo.delete(generation_id)
     return Response(status_code=204)
