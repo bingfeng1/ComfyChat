@@ -213,3 +213,52 @@ def test_cancel_returns_409_for_terminal(tmp_path, monkeypatch):
     r = client.post(f"/generations/{gen['id']}/cancel")
     assert r.status_code == 409
     assert "already terminal" in r.json()["detail"]
+
+
+def test_list_filter_by_workflow_id(tmp_path, monkeypatch):
+    client, _ = _client(tmp_path)
+    wid1 = _import_workflow(client, name="workflow-a")
+    wid2 = _import_workflow(client, name="workflow-b")
+    _config(client, wid1)
+    _config(client, wid2)
+
+    from app.integrations.comfyui.client import ComfyUIClient
+
+    class FakeComfy:
+        def submit_prompt(self, prompt):
+            return "p-1", "c-1"
+        def get_history(self, prompt_id):
+            return {"p-1": {"status": {"status_str": "success"}, "outputs": {"9": {"images": [{"filename": "out.png", "subfolder": "", "type": "output"}]}}}}
+        def get_image(self, filename, subfolder="", image_type="output"):
+            return b"PNGDATA"
+
+    for name in ("submit_prompt", "get_history", "get_image"):
+        monkeypatch.setattr(ComfyUIClient, name, getattr(FakeComfy, name))
+
+    for _ in range(3):
+        client.post("/generations", json={
+            "workflow_id": wid1,
+            "parameters": {"positive_prompt": "cat", "seed": 42, "seed_random": False},
+        })
+    for _ in range(2):
+        client.post("/generations", json={
+            "workflow_id": wid2,
+            "parameters": {"positive_prompt": "dog", "seed": 99, "seed_random": False},
+        })
+
+    all_items = client.get("/generations").json()
+    assert all_items["total"] == 5
+
+    wf1_items = client.get(f"/generations?workflow_id={wid1}").json()
+    assert wf1_items["total"] == 3
+    assert len(wf1_items["items"]) == 3
+    assert all(i["workflow_id"] == wid1 for i in wf1_items["items"])
+
+    wf2_items = client.get(f"/generations?workflow_id={wid2}").json()
+    assert wf2_items["total"] == 2
+    assert len(wf2_items["items"]) == 2
+    assert all(i["workflow_id"] == wid2 for i in wf2_items["items"])
+
+    unknown = client.get("/generations?workflow_id=nonexistent").json()
+    assert unknown["total"] == 0
+    assert unknown["items"] == []

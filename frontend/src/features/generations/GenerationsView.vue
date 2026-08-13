@@ -12,6 +12,8 @@ const {
   loading,
   error,
   statusFilter,
+  workflowFilter,
+  workflows,
   page,
   pageSize,
   total,
@@ -107,13 +109,24 @@ function promptText(g: GenerationSummary): string {
     />
 
     <div class="cc-filters">
-      <el-select v-model="statusFilter" placeholder="全部状态" clearable style="width: 200px">
-        <el-option value="" label="全部状态" />
-        <el-option value="queued" label="排队中" />
-        <el-option value="running" label="执行中" />
-        <el-option value="success" label="成功" />
-        <el-option value="failed" label="失败" />
-      </el-select>
+      <el-space wrap>
+        <el-select v-model="workflowFilter" placeholder="全部工作流" clearable style="width: 200px">
+          <el-option value="" label="全部工作流" />
+          <el-option
+            v-for="w in workflows"
+            :key="w.id"
+            :value="w.id"
+            :label="w.name"
+          />
+        </el-select>
+        <el-select v-model="statusFilter" placeholder="全部状态" clearable style="width: 200px">
+          <el-option value="" label="全部状态" />
+          <el-option value="queued" label="排队中" />
+          <el-option value="running" label="执行中" />
+          <el-option value="success" label="成功" />
+          <el-option value="failed" label="失败" />
+        </el-select>
+      </el-space>
     </div>
 
     <el-table :data="items" v-loading="loading" stripe style="width: 100%">

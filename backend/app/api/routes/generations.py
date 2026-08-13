@@ -49,6 +49,7 @@ def create_generation(
 @router.get("", response_model=GenerationListOut)
 def list_generations(
     status: str | None = None,
+    workflow_id: str | None = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(15, ge=1, le=100),
     exclude_nsfw: bool = False,
@@ -60,9 +61,11 @@ def list_generations(
         pass
     items = service.gen_repo.list(
         status=status, page=page, page_size=page_size,
-        exclude_nsfw=exclude_nsfw,
+        exclude_nsfw=exclude_nsfw, workflow_id=workflow_id,
     )
-    total = service.gen_repo.count(status=status, exclude_nsfw=exclude_nsfw)
+    total = service.gen_repo.count(
+        status=status, exclude_nsfw=exclude_nsfw, workflow_id=workflow_id,
+    )
     return GenerationListOut(
         items=[GenerationOut.from_model(g) for g in items],
         total=total,

@@ -90,6 +90,7 @@ class GenerationRepository:
         page: int = 1,
         page_size: int = 15,
         exclude_nsfw: bool = False,
+        workflow_id: Optional[str] = None,
     ) -> Sequence[Generation]:
         if page < 1:
             page = 1
@@ -100,16 +101,26 @@ class GenerationRepository:
         stmt = select(Generation)
         if status:
             stmt = stmt.where(Generation.status == status)
+        if workflow_id:
+            stmt = stmt.where(Generation.workflow_id == workflow_id)
         if exclude_nsfw:
             stmt = stmt.where(self._nsfw_filter())
         stmt = stmt.order_by(Generation.created_at.desc())
         stmt = stmt.offset((page - 1) * page_size).limit(page_size)
         return self.session.scalars(stmt).all()
 
-    def count(self, status: Optional[str] = None, *, exclude_nsfw: bool = False) -> int:
+    def count(
+        self,
+        status: Optional[str] = None,
+        *,
+        exclude_nsfw: bool = False,
+        workflow_id: Optional[str] = None,
+    ) -> int:
         stmt = select(func.count()).select_from(Generation)
         if status:
             stmt = stmt.where(Generation.status == status)
+        if workflow_id:
+            stmt = stmt.where(Generation.workflow_id == workflow_id)
         if exclude_nsfw:
             stmt = stmt.where(self._nsfw_filter())
         return int(self.session.scalar(stmt) or 0)

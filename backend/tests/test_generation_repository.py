@@ -242,3 +242,80 @@ def test_exclude_nsfw_count_matches_list(session):
     listed = repo.list(exclude_nsfw=True)
     counted = repo.count(exclude_nsfw=True)
     assert len(listed) == counted == 2
+
+
+def test_list_with_workflow_filter(session):
+    """按 workflow_id 筛选。"""
+    repo = _mk_repo(session)
+    for i in range(5):
+        repo.create("wf1", "workflow-a", {"i": i}, "success", f"p{i}")
+    for i in range(3):
+        repo.create("wf2", "workflow-b", {"i": i}, "success", f"q{i}")
+    for i in range(2):
+        repo.create("wf3", "workflow-c", {"i": i}, "success", f"r{i}")
+
+    wf1_items = repo.list(workflow_id="wf1")
+    assert len(wf1_items) == 5
+    assert all(g.workflow_id == "wf1" for g in wf1_items)
+
+    wf2_items = repo.list(workflow_id="wf2")
+    assert len(wf2_items) == 3
+    assert all(g.workflow_id == "wf2" for g in wf2_items)
+
+    wf3_items = repo.list(workflow_id="wf3")
+    assert len(wf3_items) == 2
+    assert all(g.workflow_id == "wf3" for g in wf3_items)
+
+
+def test_count_with_workflow_filter(session):
+    """count 按 workflow_id 筛选。"""
+    repo = _mk_repo(session)
+    for i in range(7):
+        repo.create("wf1", "workflow-a", {"i": i}, "success", f"p{i}")
+    for i in range(4):
+        repo.create("wf2", "workflow-b", {"i": i}, "success", f"q{i}")
+
+    assert repo.count(workflow_id="wf1") == 7
+    assert repo.count(workflow_id="wf2") == 4
+    assert repo.count(workflow_id="wf3") == 0
+    assert repo.count() == 11
+
+
+def test_list_workflow_filter_with_status(session):
+    """workflow_id 和 status 组合筛选。"""
+    repo = _mk_repo(session)
+    repo.create("wf1", "workflow-a", {}, "success", "p1")
+    repo.create("wf1", "workflow-a", {}, "queued", "p2")
+    repo.create("wf1", "workflow-a", {}, "failed", "p3")
+    repo.create("wf2", "workflow-b", {}, "success", "p4")
+
+    result = repo.list(workflow_id="wf1", status="success")
+    assert len(result) == 1
+
+    result = repo.list(workflow_id="wf2", status="success")
+    assert len(result) == 1
+
+    result = repo.list(workflow_id="wf1", status="failed")
+    assert len(result) == 1
+
+
+def test_list_workflow_filter_paginates(session):
+    """workflow_id 筛选下分页正常。"""
+    repo = _mk_repo(session)
+    for i in range(12):
+        repo.create("wf1", "workflow-a", {"i": i}, "success", f"p{i}")
+    for i in range(8):
+        repo.create("wf2", "workflow-b", {"i": i}, "success", f"q{i}")
+
+    wf1_page1 = repo.list(workflow_id="wf1", page=1, page_size=5)
+    wf1_page2 = repo.list(workflow_id="wf1", page=2, page_size=5)
+    wf1_page3 = repo.list(workflow_id="wf1", page=3, page_size=5)
+    assert len(wf1_page1) == 5
+    assert len(wf1_page2) == 5
+    assert len(wf1_page3) == 2
+    assert {g.id for g in wf1_page1}.isdisjoint({g.id for g in wf1_page2})
+
+    wf2_page1 = repo.list(workflow_id="wf2", page=1, page_size=5)
+    assert len(wf2_page1) == 5
+    wf2_page2 = repo.list(workflow_id="wf2", page=2, page_size=5)
+    assert len(wf2_page2) == 3

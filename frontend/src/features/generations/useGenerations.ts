@@ -1,18 +1,29 @@
 import { onMounted, onUnmounted, ref, watch } from "vue";
 import { api } from "@/services/api";
 import { useNsfwFilter } from "@/composables/useNsfwFilter";
-import type { GenerationStatus, GenerationSummary } from "@/types/api";
+import type { GenerationStatus, GenerationSummary, WorkflowSummary } from "@/types/api";
 
 export function useGenerations() {
   const items = ref<GenerationSummary[]>([]);
   const loading = ref(false);
   const error = ref<string | null>(null);
   const statusFilter = ref<GenerationStatus | "">("");
+  const workflowFilter = ref<string>("");
   const page = ref(1);
   const pageSize = ref(15);
   const total = ref(0);
+  const workflows = ref<WorkflowSummary[]>([]);
   const { enabled: nsfwEnabled } = useNsfwFilter();
   let timer: number | undefined;
+
+  async function loadWorkflows() {
+    try {
+      const data = await api.workflows.list();
+      workflows.value = data.items;
+    } catch {
+      /* 工作流列表获取失败不影响主流程 */
+    }
+  }
 
   async function refresh(silent = false) {
     if (!silent) loading.value = true;
@@ -20,6 +31,7 @@ export function useGenerations() {
     try {
       const data = await api.generations.list({
         status: statusFilter.value || undefined,
+        workflow_id: workflowFilter.value || undefined,
         page: page.value,
         page_size: pageSize.value,
         exclude_nsfw: !nsfwEnabled.value,
@@ -37,6 +49,7 @@ export function useGenerations() {
     try {
       const data = await api.generations.list({
         status: statusFilter.value || undefined,
+        workflow_id: workflowFilter.value || undefined,
         page: page.value,
         page_size: pageSize.value,
         exclude_nsfw: !nsfwEnabled.value,
@@ -84,12 +97,18 @@ export function useGenerations() {
     refresh();
   });
 
+  watch(workflowFilter, () => {
+    page.value = 1;
+    refresh();
+  });
+
   watch(nsfwEnabled, () => {
     page.value = 1;
     refresh();
   });
 
   onMounted(() => {
+    loadWorkflows();
     refresh();
     timer = window.setInterval(poll, 2000);
   });
@@ -102,6 +121,8 @@ export function useGenerations() {
     loading,
     error,
     statusFilter,
+    workflowFilter,
+    workflows,
     page,
     pageSize,
     total,
