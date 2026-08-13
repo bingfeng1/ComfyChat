@@ -39,8 +39,6 @@ const currentConfig = computed(
 
 const fields = computed<GenerationField[]>(() => currentConfig.value?.fields ?? []);
 
-const needsFieldsStep = computed(() => fields.value.length > 0);
-
 const RATIO_PRESETS = [
   { label: "1:1", w: 1, h: 1 },
   { label: "4:3", w: 4, h: 3 },
@@ -127,17 +125,16 @@ function onSizeChange(changed: "width" | "height") {
   }
 }
 
-const totalSteps = computed(() => (needsFieldsStep.value ? 3 : 2));
+const totalSteps = 2;
 
 const stepTitle = computed(() => {
   if (step.value === 1) return "选择工作流";
-  if (step.value === 2 && needsFieldsStep.value) return "填写参数";
-  return "确认并生成";
+  return "填写参数";
 });
 
 const canProceed = computed(() => {
   if (step.value === 1) return workflowId.value !== "";
-  if (step.value === 2 && needsFieldsStep.value) {
+  if (step.value === 2) {
     for (const f of fields.value) {
       if (!f.required) continue;
       const isSeed = f.type === "seed";
@@ -155,8 +152,8 @@ const canProceed = computed(() => {
 const workflowHint = computed(() => {
   if (configs.value.length === 0) return "";
   if (!currentConfig.value) return "请从下拉列表选择一个工作流";
-  if (fields.value.length === 0) return "此工作流未配置参数,选完即可生成";
-  return `此工作流包含 ${fields.value.length} 个参数,下一步填写`;
+  if (fields.value.length === 0) return "此工作流未配置参数,可直接生成";
+  return `此工作流包含 ${fields.value.length} 个参数,点击「生成」直接生成`;
 });
 
 onMounted(async () => {
@@ -173,7 +170,7 @@ onMounted(async () => {
         configs.value.some((c) => c.workflow_id === props.preselectWorkflowId)
       ) {
         selectWorkflow(props.preselectWorkflowId);
-        step.value = needsFieldsStep.value ? 2 : totalSteps.value;
+        step.value = 2;
       } else {
         const presetId = props.preset?.workflow_id ?? configs.value[0].workflow_id;
         selectWorkflow(presetId);
@@ -243,6 +240,9 @@ function loraOptions(f: GenerationField): string[] {
 function onWorkflowChange(id: string | number) {
   selectWorkflow(String(id));
   step.value = 1;
+  if (fields.value.length === 0) {
+    step.value = 2;
+  }
 }
 
 // 兜底: 字段就绪后,确保每个 seed 字段的随机标志有显式布尔值(新建生成默认勾选随机)
@@ -262,7 +262,7 @@ watch(
 
 function next() {
   if (!canProceed.value) return;
-  if (step.value < totalSteps.value) step.value++;
+  if (step.value < totalSteps) step.value++;
 }
 
 function back() {
@@ -373,15 +373,6 @@ function showThumbnail(url: string) {
   mainImageUrl.value = url;
 }
 
-function paramDisplay(f: GenerationField): string {
-  const isSeed = f.type === "seed";
-  const isRandom = isSeed && randomFlags.value[`${f.key}_random`];
-  if (isRandom) return "随机";
-  const v = values.value[f.key];
-  if (v === undefined || v === null || v === "") return "—";
-  return String(v);
-}
-
 const autoTriggerPreview = computed(() => {
   if (!autoAddTrigger.value) return "";
   const loraName = values.value["lora_name"];
@@ -398,7 +389,7 @@ const autoTriggerPreview = computed(() => {
 <template>
   <Modal
     :title="props.preset ? '再生成' : '新建生成'"
-    :width="step === totalSteps ? '1200px' : '620px'"
+    :width="step >= 2 ? '1200px' : '620px'"
     @close="emit('close')"
   >
     <div v-if="loading" class="cc-loading">
@@ -421,12 +412,9 @@ const autoTriggerPreview = computed(() => {
       </p>
     </div>
 
-    <div v-else class="cc-modal-body" :class="{ 'is-final-step': step === totalSteps }">
-      <div
-        class="cc-modal-left"
-        :class="{ 'is-full-width': step !== totalSteps }"
-      >
-        <div class="cc-step-header">
+    <div v-else class="cc-modal-body">
+      <div class="cc-modal-left">
+      <div class="cc-step-header">
         第 {{ step }} 步 / 共 {{ totalSteps }} 步 — {{ stepTitle }}
       </div>
 
@@ -448,7 +436,7 @@ const autoTriggerPreview = computed(() => {
         <p class="cc-hint">{{ workflowHint }}</p>
       </div>
 
-      <div v-else-if="step === 2 && needsFieldsStep" class="cc-step-body">
+      <div v-else-if="step === 2" class="cc-step-body">
         <el-form label-width="90px" label-position="left" class="cc-params-form">
         <el-form-item v-if="hasSizeFields" label="尺寸">
           <div class="cc-size-control">
@@ -572,33 +560,6 @@ const autoTriggerPreview = computed(() => {
         </el-form>
       </div>
 
-      <div v-else class="cc-step-body">
-        <el-descriptions :column="1" border>
-          <el-descriptions-item label="工作流">
-            {{ currentConfig?.workflow_name ?? workflowId }}
-          </el-descriptions-item>
-          <el-descriptions-item
-            v-for="f in fields"
-            :key="f.key"
-            :label="f.label"
-          >
-            {{ paramDisplay(f) }}
-          </el-descriptions-item>
-        </el-descriptions>
-        <el-alert
-          v-if="autoTriggerPreview"
-          type="info"
-          :closable="false"
-          show-icon
-          class="cc-trigger-hint"
-        >
-          <template #title>
-            将自动在正面提示词中添加 LoRA 触发词:{{ autoTriggerPreview }}
-          </template>
-        </el-alert>
-        <p v-if="fields.length === 0" class="cc-hint">此工作流无参数,直接生成。</p>
-      </div>
-
       <el-alert
           v-if="submitError"
           :title="submitError"
@@ -615,7 +576,7 @@ const autoTriggerPreview = computed(() => {
         />
       </div>
 
-      <template v-if="step === totalSteps">
+      <template v-if="step >= 2">
         <div class="cc-modal-divider"></div>
 
         <div class="cc-modal-right">
@@ -663,12 +624,9 @@ const autoTriggerPreview = computed(() => {
         <el-button :disabled="step === 1" @click="back">上一步</el-button>
         <el-button @click="emit('close')">取消</el-button>
         <el-button v-if="showGoto" @click="emit('goto')">跳转至生成界面</el-button>
-        <el-button
-          v-if="step < totalSteps"
-          type="primary"
-          :disabled="!canProceed"
-          @click="next"
-        >下一步</el-button>
+        <template v-if="step === 1">
+          <el-button type="primary" :disabled="!canProceed" @click="next">下一步</el-button>
+        </template>
         <template v-else>
           <el-button
             v-if="activeGenId && (activeStatus === 'queued' || activeStatus === 'running')"
@@ -684,6 +642,7 @@ const autoTriggerPreview = computed(() => {
             v-else
             type="primary"
             :loading="submitting"
+            :disabled="!canProceed"
             @click="submit"
           >生成</el-button>
         </template>
@@ -783,18 +742,12 @@ const autoTriggerPreview = computed(() => {
   display: flex;
   gap: 24px;
 }
-.cc-modal-body.is-final-step {
-  min-height: 400px;
-}
 .cc-modal-left {
   width: 480px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
-}
-.cc-modal-left.is-full-width {
-  width: 100%;
 }
 .cc-modal-divider {
   width: 1px;

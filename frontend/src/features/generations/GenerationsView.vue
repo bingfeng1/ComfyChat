@@ -78,6 +78,12 @@ function thumbUrl(g: GenerationSummary): string | null {
   return first ? api.generations.imageUrl(g.id, first) : null;
 }
 
+function allThumbUrls(): string[] {
+  return items.value
+    .map((g) => thumbUrl(g))
+    .filter((u): u is string => u !== null);
+}
+
 function promptText(g: GenerationSummary): string {
   const p = g.parameters["text"];
   return typeof p === "string" ? p : "";
@@ -118,7 +124,7 @@ function promptText(g: GenerationSummary): string {
             :src="thumbUrl(row)!"
             fit="cover"
             style="width: 72px; height: 72px; border-radius: 6px"
-            :preview-src-list="[thumbUrl(row)!]"
+            :preview-src-list="allThumbUrls()"
             preview-teleported
           />
           <div v-else class="cc-thumb-placeholder" />
