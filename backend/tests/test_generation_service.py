@@ -1,5 +1,4 @@
 import json
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -86,6 +85,8 @@ class FakeComfy:
         self.submitted = None
         self.history = {}
         self.queue = {"queue_running": [], "queue_pending": []}
+        # 模拟 WS 等待:返回当前 history 条目(空 → ComfyUIError 模拟 WS 超时回退到空 history)。
+        self.wait_history_should_fail = False
 
     def submit_prompt(self, prompt):
         self.submitted = prompt
@@ -96,6 +97,11 @@ class FakeComfy:
 
     def get_queue(self):
         return self.queue
+
+    def wait_for_history(self, prompt_id, *, timeout=1800.0):
+        if self.wait_history_should_fail and self.history.get(prompt_id) is None:
+            raise ComfyUIError("WS wait failed and /history empty")
+        return self.history.get(prompt_id) or {}
 
     def get_image(self, filename, subfolder="", image_type="output"):
         return b"PNGDATA"
@@ -138,7 +144,8 @@ def test_outputs_dir_falls_back_for_empty_created_at(session, tmp_path):
     assert d == settings.storage_root / "outputs" / "unknown"
 
 
-def test_poll_downloads_images_and_succeeds(session, tmp_path):
+def test_watch_downloads_images_and_succeeds(session, tmp_path):
+    """WS 完成事件触发 → 下载图片 → 标记 success。"""
     settings = _settings(tmp_path)
     _config(session, "wf1")
     comfy = FakeComfy()
@@ -151,7 +158,7 @@ def test_poll_downloads_images_and_succeeds(session, tmp_path):
     svc = _service(session, settings, comfy)
     gen = svc.create("wf1", {"positive_prompt": "cat", "seed": 5, "seed_random": False})
 
-    svc.poll_until_done(gen.id, poll_interval=0.0)
+    svc._watch_and_download(gen.id)
 
     got = GenerationRepository(session).get(gen.id)
     assert got.status == "success"
@@ -193,7 +200,8 @@ def test_delete_outputs_only_removes_own_files(session, tmp_path):
     assert (out_dir / "others.png").exists()
 
 
-def test_poll_marks_failed_on_error(session, tmp_path):
+def test_watch_marks_failed_on_error_status(session, tmp_path):
+    """WS 完成事件携带 status_str=error → 标记 failed,error 字段含 messages。"""
     settings = _settings(tmp_path)
     _config(session, "wf1")
     comfy = FakeComfy()
@@ -201,34 +209,49 @@ def test_poll_marks_failed_on_error(session, tmp_path):
     svc = _service(session, settings, comfy)
     gen = svc.create("wf1", {"positive_prompt": "cat", "seed": 5, "seed_random": False})
 
-    svc.poll_until_done(gen.id, poll_interval=0.0)
+    svc._watch_and_download(gen.id)
 
     got = GenerationRepository(session).get(gen.id)
     assert got.status == "failed"
     assert got.error
 
 
-def test_poll_retries_until_success(session, tmp_path):
+def test_watch_falls_back_to_history_when_ws_fails(session, tmp_path):
+    """WS 超时/断连 → 回退到 /history 一次性查询;若已写入则正常完成。"""
     settings = _settings(tmp_path)
     _config(session, "wf1")
     comfy = FakeComfy()
-
-    def history(prompt_id):
-        if not getattr(history, "called", False):
-            history.called = True
-            return {}
-        return {"p-1": {"status": {"status_str": "success"}, "outputs": {}}}
-
-    comfy.get_history = history
+    comfy.wait_history_should_fail = True
+    comfy.history = {
+        "p-1": {"status": {"status_str": "success"}, "outputs": {}},
+    }
     svc = _service(session, settings, comfy)
     gen = svc.create("wf1", {"positive_prompt": "cat", "seed": 5, "seed_random": False})
 
-    svc.poll_until_done(gen.id, poll_interval=0.0)
+    svc._watch_and_download(gen.id)
 
     assert GenerationRepository(session).get(gen.id).status == "success"
 
 
-def test_reconcile_finalizes_lost_tasks(session, tmp_path):
+def test_watch_marks_failed_when_ws_fails_and_history_empty(session, tmp_path):
+    """WS 失败且 /history 仍无 entry(说明 prompt 真丢了)→ 标记 failed。"""
+    settings = _settings(tmp_path)
+    _config(session, "wf1")
+    comfy = FakeComfy()
+    comfy.wait_history_should_fail = True
+    comfy.history = {}
+    svc = _service(session, settings, comfy)
+    gen = svc.create("wf1", {"positive_prompt": "cat", "seed": 5, "seed_random": False})
+
+    svc._watch_and_download(gen.id)
+
+    got = GenerationRepository(session).get(gen.id)
+    assert got.status == "failed"
+    assert got.error
+
+
+def test_reconcile_finalizes_pending_tasks_via_history_check(session, tmp_path):
+    """reconcile:对 queued/running 行做一次性 /history 检查,有 entry 即完成。"""
     settings = _settings(tmp_path)
     _config(session, "wf1")
     comfy = FakeComfy()
@@ -671,117 +694,6 @@ def test_cancel_swallows_comfyui_error(session, tmp_path):
     result = svc.cancel(gen.id)
 
     assert repo.get(gen.id) is None
-
-
-def test_poll_marks_failed_after_two_running_misses(session, tmp_path):
-    settings = _settings(tmp_path)
-    comfy = FakeComfy()
-    comfy.history = {}
-    svc = _service(session, settings, comfy)
-    repo = GenerationRepository(session)
-    gen = repo.create("wf1", "z-image", {}, "running", "p-1")
-    # updated_at 默认是 _utcnow(),需要回拨到宽限期外(>10s) 才能让旧的 miss-counter 行为继续生效。
-    backdated = (datetime.now(timezone.utc) - timedelta(seconds=20)).isoformat()
-    gen.updated_at = backdated
-    session.commit()
-
-    svc.poll_until_done(gen.id, poll_interval=0.0)
-
-    got = repo.get(gen.id)
-    assert got.status == "failed"
-    assert "生成结果丢失" in (got.error or "")
-
-
-def test_poll_does_not_count_misses_during_grace_period(session, tmp_path):
-    """刚升级到 running 的几秒内,/history 可能还没有 entry,不应计 miss。
-
-    updated_at 默认为 _utcnow() → 处于宽限期内,_poll_once 应直接 return False
-    继续等待,而非触发 miss-counter 把任务标记为 failed。
-
-    直接调 _poll_once(poll_until_done 在 poll_interval=0.0 下会跑完 900 次
-    max_attempts 后报"轮询超时",不适合验证宽限期内的语义)。
-    """
-    settings = _settings(tmp_path)
-    comfy = FakeComfy()
-    comfy.history = {}  # 永远为空
-    svc = _service(session, settings, comfy)
-    repo = GenerationRepository(session)
-    gen = repo.create("wf1", "z-image", {}, "running", "p-1")
-    # updated_at 是 now() — 处于宽限期(10s)内
-
-    terminal = svc._poll_once(repo.session, gen)
-
-    got = repo.get(gen.id)
-    assert terminal is False
-    assert got.status == "running"
-    assert got.poll_miss_count == 0
-
-
-def test_poll_keeps_running_when_prompt_still_in_queue(session, tmp_path):
-    """ComfyUI /history 只含已开始/已完成的 prompt;还在 /queue 里等待的 prompt
-    (前一个任务没跑完)在 /history 里看不到。此时不能算 miss —— 否则排队中的
-    生成会被误标为「生成结果丢失」,而 ComfyUI 其实还在正常生成。
-
-    updated_at 回拨到宽限期外,确保是 /queue 检查(而非宽限期)在兜底。
-    """
-    settings = _settings(tmp_path)
-    comfy = FakeComfy()
-    comfy.history = {}
-    comfy.queue = {"queue_running": [], "queue_pending": [["p-1", 1, {"x": 1}]]}
-    svc = _service(session, settings, comfy)
-    repo = GenerationRepository(session)
-    gen = repo.create("wf1", "z-image", {}, "running", "p-1")
-    backdated = (datetime.now(timezone.utc) - timedelta(seconds=20)).isoformat()
-    gen.updated_at = backdated
-    session.commit()
-
-    terminal = svc._poll_once(repo.session, gen)
-
-    got = repo.get(gen.id)
-    assert terminal is False
-    assert got.status == "running"
-    assert got.poll_miss_count == 0
-
-
-def test_poll_keeps_running_when_prompt_is_currently_running_in_queue(session, tmp_path):
-    """prompt 正在 ComfyUI 执行中(/history 还没有 entry,但 /queue running 里有)。"""
-    settings = _settings(tmp_path)
-    comfy = FakeComfy()
-    comfy.history = {}
-    comfy.queue = {"queue_running": [["p-1", 1, {"x": 1}]], "queue_pending": []}
-    svc = _service(session, settings, comfy)
-    repo = GenerationRepository(session)
-    gen = repo.create("wf1", "z-image", {}, "running", "p-1")
-    backdated = (datetime.now(timezone.utc) - timedelta(seconds=20)).isoformat()
-    gen.updated_at = backdated
-    session.commit()
-
-    terminal = svc._poll_once(repo.session, gen)
-
-    got = repo.get(gen.id)
-    assert terminal is False
-    assert got.status == "running"
-    assert got.poll_miss_count == 0
-
-
-def test_poll_marks_failed_when_prompt_in_neither_queue_nor_history(session, tmp_path):
-    """真正丢失:prompt 既不在 /history 也不在 /queue —— 连续 2 次才标失败。"""
-    settings = _settings(tmp_path)
-    comfy = FakeComfy()
-    comfy.history = {}
-    comfy.queue = {"queue_running": [], "queue_pending": []}
-    svc = _service(session, settings, comfy)
-    repo = GenerationRepository(session)
-    gen = repo.create("wf1", "z-image", {}, "running", "p-1")
-    backdated = (datetime.now(timezone.utc) - timedelta(seconds=20)).isoformat()
-    gen.updated_at = backdated
-    session.commit()
-
-    svc.poll_until_done(gen.id, poll_interval=0.0)
-
-    got = repo.get(gen.id)
-    assert got.status == "failed"
-    assert "生成结果丢失" in (got.error or "")
 
 
 # ---- append_lora_trigger ----------------------------------------------------

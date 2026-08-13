@@ -144,16 +144,18 @@ def test_cancel_deletes_record_and_returns_204(tmp_path, monkeypatch):
             return "p-1"
         def get_history(self, prompt_id):
             return {}
+        def wait_for_history(self, prompt_id, *, timeout=1800.0):
+            raise ComfyUIError("stub: WS never resolves in this test")
         def interrupt(self):
             pass
         def delete_queued(self, prompt_id):
             pass
 
-    for name in ("submit_prompt", "get_history", "interrupt", "delete_queued"):
+    for name in ("submit_prompt", "get_history", "wait_for_history", "interrupt", "delete_queued"):
         monkeypatch.setattr(ComfyUIClient, name, getattr(FakeComfy, name))
-    # Stub poll_until_done: Task 4's miss-counter would otherwise flip this
-    # gen to failed/生成结果丢失 before cancel asserts.
-    monkeypatch.setattr(GenerationService, "poll_until_done", lambda self, generation_id: None)
+    # Stub _watch_and_download:WS 在测试里没真连,会一直挂;改成 noop 让 cancel 在
+    # miss-counter 触发之前先到(否则 cancel 与后台任务 race,状态可能先变 failed)。
+    monkeypatch.setattr(GenerationService, "_watch_and_download", lambda self, generation_id: None)
 
     gen = client.post("/generations", json={
         "workflow_id": wid,

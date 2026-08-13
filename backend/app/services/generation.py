@@ -25,7 +25,9 @@ def _utcnow() -> str:
 # _poll_once 在 status == "running" 但 /history 为空时计入 miss。
 # 刚从 queued 升级到 running 的几秒内,ComfyUI pipeline 还没把 entry 写进 /history,
 # 这种空响应属于正常启动延迟,不应视为 miss。在宽限期内直接 return False 继续等待。
-RUNNING_HISTORY_GRACE_SECONDS = 10.0
+# 保留作为常量供旧测试引用 — 但当前实现已切换到 WebSocket 等待,不再主动轮询。
+# 等待时长默认 30 分钟,与 ComfyUI 长时间生成兼容;超时会由 wait_for_history 抛 ComfyUIError。
+DEFAULT_WATCH_TIMEOUT_SECONDS = 1800.0
 
 
 _CONTROL_TOKENS = {"fixed", "randomize", "increment", "decrement"}
@@ -451,124 +453,124 @@ class GenerationService:
         else:
             yield self.gen_repo.session
 
-    def _prompt_in_queue(self, prompt_id: str) -> bool:
-        """prompt 是否还在 ComfyUI /queue(running 或 pending)中。
-
-        排队中/执行中的 prompt 在 /history 里看不到,但在 /queue 里有记录。
-        ComfyUI 查询异常时保守返回 True(当作还在队列,不误杀正在生成的),
-        由宽限期 + 连续 miss 兜底真正的丢失场景。
-        """
-        try:
-            queue = self.comfyui.get_queue()
-        except Exception:
-            return True
-        for bucket in ("queue_running", "queue_pending"):
-            for item in queue.get(bucket, []) or []:
-                if item and item[0] == prompt_id:
-                    return True
-        return False
-
-    def _poll_once(self, session: Session, gen: Generation) -> bool:
-        """查询一次 ComfyUI,返回 True 表示已到达终态。
-
-        用户中止 + ComfyUI 清掉 history 的边缘场景:`gen.status == "running"`
-        但 `get_history` 返回空;连续 2 次空就 mark_failed 退出,避免轮询死循环。
-        """
-        repo = GenerationRepository(session)
-        if gen.status == "running":
-            # 宽限期:刚升级到 running 的几秒内,/history 还没 entry 是正常的。
-            # 此时空响应不计入 miss,但 /history 的 entry 仍正常检测 —— 不阻塞快速成功的
-            # 生成任务。只在尚未计过 miss 时检查宽限期——一旦开始计数,update_poll_miss_count
-            # 会刷新 updated_at,这时不再重新进入宽限期,以免死循环。
-            in_grace = False
-            if (gen.poll_miss_count or 0) == 0:
-                try:
-                    running_since = datetime.fromisoformat(gen.updated_at)
-                except (TypeError, ValueError):
-                    running_since = None
-                if running_since is not None:
-                    elapsed = (datetime.now(timezone.utc) - running_since).total_seconds()
-                    if elapsed < RUNNING_HISTORY_GRACE_SECONDS:
-                        in_grace = True
-            history = self.comfyui.get_history(gen.prompt_id)
-            if not history:
-                if in_grace:
-                    return False
-                # ComfyUI /history 只含已开始/已完成的 prompt。排队中(前一个任务未跑完)
-                # 或执行中的 prompt 在 /history 里看不到,但会出现在 /queue(running/pending)。
-                # 只要 prompt 还在队列里,就绝不能算 miss —— 否则会误报「生成结果丢失」,
-                # 而 ComfyUI 其实还在正常生成。
-                if self._prompt_in_queue(gen.prompt_id):
-                    if (gen.poll_miss_count or 0) > 0:
-                        repo.update_poll_miss_count(gen.id, 0)
-                    return False
-                miss = (gen.poll_miss_count or 0) + 1
-                if miss >= 2:
-                    repo.mark_failed(gen.id, "生成结果丢失")
-                    return True
-                repo.update_poll_miss_count(gen.id, miss)
-                return False
-            if (gen.poll_miss_count or 0) > 0:
-                repo.update_poll_miss_count(gen.id, 0)
-            entry = history.get(gen.prompt_id)
-        else:
-            try:
-                history = self.comfyui.get_history(gen.prompt_id)
-            except Exception:
-                return False
-            entry = history.get(gen.prompt_id)
-        if entry is None:
-            if gen.status == "queued":
-                repo.update_status(gen.id, "running")
-            return False
-        status_str = (entry.get("status") or {}).get("status_str")
-        if status_str == "error":
-            messages = (entry.get("status") or {}).get("messages") or []
-            repo.mark_failed(gen.id, json.dumps(messages, ensure_ascii=False))
-            return True
-        images = collect_images(entry)
-        saved = []
-        if images:
-            out_dir = self.outputs_dir(gen)
-            out_dir.mkdir(parents=True, exist_ok=True)
-            for img in images:
-                filename = Path(img["filename"]).name
-                if not filename:
-                    continue
-                try:
-                    data = self.comfyui.get_image(
-                        img["filename"], img.get("subfolder", ""), img.get("type", "output")
-                    )
-                except Exception as exc:
-                    repo.mark_failed(gen.id, f"下载图片失败: {filename}: {exc}")
-                    return True
-                target = self._dedup_target(out_dir, filename)
-                target.write_bytes(data)
-                saved.append(target.name)
-        repo.update_success(gen.id, saved)
-        return True
-
-    def poll_until_done(
+    def _watch_and_download(
         self,
         generation_id: str,
-        poll_interval: float = 2.0,
-        max_attempts: int = 900,
+        timeout: float = DEFAULT_WATCH_TIMEOUT_SECONDS,
     ) -> None:
-        """后台轮询：每次用新 session，直到终态或超时。"""
-        for _ in range(max_attempts):
+        """后台任务:等待 prompt 完成(WebSocket 事件驱动),下载图片并持久化。
+
+        不再用轮询:ComfyUI 通过 /ws 推送 executing{node:null} 或 execution_error
+        事件 —— wait_for_history 阻塞至事件到达或超时。
+        WS 失败/超时/断连时回退到 /history 一次性查询(此时 prompt 可能已写入 history)。
+        """
+        try:
             with self._session_scope() as session:
                 repo = GenerationRepository(session)
                 gen = repo.get(generation_id)
                 if gen is None:
                     return
-                if self._poll_once(session, gen):
+
+                try:
+                    entry = self.comfyui.wait_for_history(
+                        gen.prompt_id, timeout=timeout
+                    )
+                except ComfyUIError as exc:
+                    # WS 失败(超时/断连)。回退到一次性 /history 查询。
+                    # 此时 prompt 可能已经写入 history(completion 后)也可能没有。
+                    try:
+                        history = self.comfyui.get_history(gen.prompt_id)
+                        entry = history.get(gen.prompt_id) or {}
+                    except ComfyUIError:
+                        repo.mark_failed(
+                            generation_id, f"WS 等待失败且 /history 不可用: {exc}"
+                        )
+                        return
+                    if not entry:
+                        repo.mark_failed(
+                            generation_id, f"WS 失败且 /history 为空: {exc}"
+                        )
+                        return
+
+                status_str = (entry.get("status") or {}).get("status_str")
+                if status_str == "error":
+                    messages = (entry.get("status") or {}).get("messages") or []
+                    repo.mark_failed(
+                        generation_id, json.dumps(messages, ensure_ascii=False)
+                    )
                     return
-            if poll_interval > 0:
-                time.sleep(poll_interval)
-        with self._session_scope() as session:
-            GenerationRepository(session).mark_failed(generation_id, "轮询超时")
+
+                if gen.status == "queued":
+                    repo.update_status(generation_id, "running")
+
+                saved = self._download_images(session, gen, entry)
+                # 空 outputs 也算 success(workflow 可能就是无输出的合法形态);
+                # 与旧 polling 行为保持一致。
+                repo.update_success(generation_id, saved)
+        except Exception as exc:
+            # 兜底:任何未捕获异常都不应让后台任务静默退出。
+            with self._session_scope() as session:
+                try:
+                    GenerationRepository(session).mark_failed(
+                        generation_id, f"watch 异常: {exc}"
+                    )
+                except Exception:
+                    pass
+
+    def _download_images(
+        self, session: Session, gen: Generation, entry: dict
+    ) -> list[str]:
+        """从 history entry 下载图片到 outputs 目录,返回保存的文件名列表。
+
+        单张图片下载失败会立即终止整个 gen(标记 failed),避免半完成状态。
+        """
+        out_dir = self.outputs_dir(gen)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        saved: list[str] = []
+        repo = GenerationRepository(session)
+        for img in collect_images(entry):
+            filename = Path(img["filename"]).name
+            if not filename:
+                continue
+            try:
+                data = self.comfyui.get_image(
+                    img["filename"],
+                    img.get("subfolder", ""),
+                    img.get("type", "output"),
+                )
+            except Exception as exc:
+                repo.mark_failed(
+                    gen.id, f"下载图片失败: {filename}: {exc}"
+                )
+                return []
+            target = self._dedup_target(out_dir, filename)
+            target.write_bytes(data)
+            saved.append(target.name)
+        return saved
 
     def reconcile(self) -> None:
-        """对仍在 queued/running 的记录做一次兜底查询，用请求 session。"""
+        """对仍在 queued/running 的记录做一次 /history 检查并下载(若已完成)。
+
+        reconcile 在请求线程里跑(被 list 端点调用),因此只做一次性检查,不做阻塞等待。
+        真正的等待由创建时启动的 _watch_and_download 后台任务负责。
+        """
         for gen in self.gen_repo.list_pending():
-            self._poll_once(self.gen_repo.session, gen)
+            try:
+                history = self.comfyui.get_history(gen.prompt_id)
+            except ComfyUIError:
+                continue
+            entry = history.get(gen.prompt_id)
+            if entry is None:
+                continue
+            status_str = (entry.get("status") or {}).get("status_str")
+            if status_str == "error":
+                messages = (entry.get("status") or {}).get("messages") or []
+                self.gen_repo.mark_failed(
+                    gen.id, json.dumps(messages, ensure_ascii=False)
+                )
+                continue
+            if gen.status == "queued":
+                self.gen_repo.update_status(gen.id, "running")
+            saved = self._download_images(self.gen_repo.session, gen, entry)
+            # 空 outputs 也算 success(workflow 可能就是无输出的合法形态)。
+            self.gen_repo.update_success(gen.id, saved)

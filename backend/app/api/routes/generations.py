@@ -42,7 +42,7 @@ def create_generation(
         raise HTTPException(status_code=400, detail=str(exc))
     except ComfyUIError as exc:
         raise HTTPException(status_code=503, detail=f"ComfyUI 不可用: {exc}")
-    background.add_task(service.poll_until_done, gen.id)
+    background.add_task(service._watch_and_download, gen.id)
     return GenerationOut.from_model(gen)
 
 

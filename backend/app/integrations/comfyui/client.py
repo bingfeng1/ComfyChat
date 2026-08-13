@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import json as _json
+import time
+import uuid
 from typing import Optional
 
 import httpx
+from websockets.sync.client import connect as _ws_connect
 
 from app.core.config import Settings
 
@@ -78,6 +82,74 @@ class ComfyUIClient:
         if not prompt_id:
             raise ComfyUIError(f"ComfyUI /prompt returned no prompt_id: {data}")
         return prompt_id
+
+    def _ws_base(self) -> str:
+        """Convert HTTP base_url to ws:// or wss:// for /ws endpoint."""
+        if not self._base_url:
+            raise ComfyUIError("ComfyUI not configured")
+        if self._base_url.startswith("https://"):
+            return "wss://" + self._base_url[len("https://"):]
+        if self._base_url.startswith("http://"):
+            return "ws://" + self._base_url[len("http://"):]
+        return self._base_url
+
+    def wait_for_history(
+        self,
+        prompt_id: str,
+        *,
+        timeout: float = 1800.0,
+    ) -> dict:
+        """Block until ComfyUI signals completion of prompt_id via WebSocket.
+
+        Returns the history entry dict (caller checks status.status_str).
+        Raises ComfyUIError on timeout, WS connect failure, or disconnect.
+
+        Strategy:
+        1. If /history already has an entry (prompt completed before we
+           connected, or this is a reconnect attempt), return it.
+        2. Connect to /ws?clientId=<uuid>, listen for events filtered by
+           prompt_id. On executing{node:null} or execution_error, fetch
+           /history and return.
+        """
+        if not self._base_url:
+            raise ComfyUIError("ComfyUI not configured")
+
+        history = self.get_history(prompt_id)
+        entry = history.get(prompt_id)
+        if entry is not None:
+            return entry
+
+        ws_url = f"{self._ws_base()}/ws?clientId={uuid.uuid4().hex}"
+        deadline = time.monotonic() + timeout
+        try:
+            with _ws_connect(ws_url, open_timeout=min(10.0, max(1.0, timeout))) as ws:
+                while True:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise ComfyUIError(f"timed out waiting for {prompt_id}")
+                    raw = ws.recv(timeout=remaining)
+                    if isinstance(raw, bytes):
+                        raw = raw.decode("utf-8", errors="replace")
+                    try:
+                        event = _json.loads(raw)
+                    except _json.JSONDecodeError:
+                        continue
+                    data = event.get("data") or {}
+                    if data.get("prompt_id") != prompt_id:
+                        continue
+                    etype = event.get("type")
+                    if etype == "executing" and data.get("node") is None:
+                        history = self.get_history(prompt_id)
+                        return history.get(prompt_id) or {}
+                    if etype == "execution_error":
+                        history = self.get_history(prompt_id)
+                        return history.get(prompt_id) or {}
+        except ComfyUIError:
+            raise
+        except TimeoutError as exc:
+            raise ComfyUIError(f"timed out waiting for {prompt_id}") from exc
+        except Exception as exc:
+            raise ComfyUIError(f"WS wait failed for {prompt_id}: {exc}") from exc
 
     def get_history(self, prompt_id: str) -> dict:
         response = self._request("get", f"/history/{prompt_id}")
