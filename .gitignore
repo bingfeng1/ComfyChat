@@ -28,6 +28,9 @@ backend/*.egg-info/
 .DS_Store
 Thumbs.db
 
+# IDE
+.vscode/
+
 # Playwright MCP artifacts
 .playwright-mcp/
 
