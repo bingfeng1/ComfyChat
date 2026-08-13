@@ -4,7 +4,7 @@ import json
 from datetime import datetime, timezone
 from typing import Optional, Sequence
 
-from sqlalchemy import and_, exists, func, or_, select
+from sqlalchemy import and_, exists, func, or_, select, text
 from sqlalchemy.orm import Session
 
 from app.models.generation import Generation, WorkflowGenerationConfig
@@ -43,38 +43,45 @@ class GenerationRepository:
         return gen
 
     @staticmethod
-    def _nsfw_filter() -> tuple:
+    def _nsfw_filter():
         """Filter predicate for generations that used an NSFW-marked LoRA.
 
         A generation "uses" an NSFW LoRA when parameters_json.lora_name
         points at a loras row with is_nsfw=true, and it's actually applied
-        (strength_model missing or != 0). Returns (keep, exclude) SQL
-        fragments usable by both list() and count().
+        (strength_model missing or != 0).
 
         Supports two storage shapes for back-compat:
         - scalar: $.lora_name is a string, $.strength_model is a number
         - array (is_array): $.lora_name is a list of {lora_name, strength_model}
+        - missing: $.lora_name absent (old generations without any lora)
+
+        json_each() 会在传入字符串或缺失字段时报 malformed JSON,所以用
+        CASE WHEN json_type(...) = 'array' 守卫,只对数组形态走 json_each。
         """
-        scalar_lora = func.json_extract(Generation.parameters_json, "$.lora_name")
-        scalar_strength = func.json_extract(Generation.parameters_json, "$.strength_model")
-        used_scalar = and_(
-            Lora.name == scalar_lora,
-            Lora.is_nsfw.is_(True),
-            or_(scalar_strength.is_(None), scalar_strength != 0),
-        )
-        # json_each flattens JSON array at $.lora_name into rows of value column.
-        # Each entry is a JSON object: {lora_name: "...", strength_model: 0.5}.
-        json_each = func.json_each(Generation.parameters_json, "$.lora_name").table_valued("value")
-        entry_lora = func.json_extract(json_each.c.value, "$.lora_name")
-        entry_strength = func.json_extract(json_each.c.value, "$.strength_model")
-        used_array = and_(
-            Lora.name == entry_lora,
-            Lora.is_nsfw.is_(True),
-            or_(entry_strength.is_(None), entry_strength != 0),
-        )
-        exclude_scalar = exists(select(1).where(used_scalar)).correlate(Generation)
-        exclude_array = exists(select(1).where(used_array)).correlate(Generation, json_each)
-        return ~or_(exclude_scalar, exclude_array)
+        scalar_clause = text("""
+            EXISTS (
+              SELECT 1 FROM loras
+              WHERE loras.name = json_extract(generations.parameters_json, '$.lora_name')
+                AND loras.is_nsfw = 1
+                AND (json_extract(generations.parameters_json, '$.strength_model') IS NULL
+                     OR CAST(json_extract(generations.parameters_json, '$.strength_model') AS REAL) != 0)
+            )
+        """)
+        array_clause = text("""
+            EXISTS (
+              SELECT 1
+              FROM json_each(
+                CASE WHEN json_type(generations.parameters_json, '$.lora_name') = 'array'
+                     THEN generations.parameters_json END,
+                '$.lora_name'
+              ) je
+              JOIN loras l ON l.name = json_extract(je.value, '$.lora_name')
+              WHERE l.is_nsfw = 1
+                AND (json_extract(je.value, '$.strength_model') IS NULL
+                     OR CAST(json_extract(je.value, '$.strength_model') AS REAL) != 0)
+            )
+        """)
+        return ~or_(scalar_clause, array_clause)
 
     def list(
         self,
