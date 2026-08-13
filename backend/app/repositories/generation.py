@@ -50,16 +50,31 @@ class GenerationRepository:
         points at a loras row with is_nsfw=true, and it's actually applied
         (strength_model missing or != 0). Returns (keep, exclude) SQL
         fragments usable by both list() and count().
+
+        Supports two storage shapes for back-compat:
+        - scalar: $.lora_name is a string, $.strength_model is a number
+        - array (is_array): $.lora_name is a list of {lora_name, strength_model}
         """
-        lora_name = func.json_extract(Generation.parameters_json, "$.lora_name")
-        strength = func.json_extract(Generation.parameters_json, "$.strength_model")
-        used_nsfw = and_(
-            Lora.name == lora_name,
+        scalar_lora = func.json_extract(Generation.parameters_json, "$.lora_name")
+        scalar_strength = func.json_extract(Generation.parameters_json, "$.strength_model")
+        used_scalar = and_(
+            Lora.name == scalar_lora,
             Lora.is_nsfw.is_(True),
-            or_(strength.is_(None), strength != 0),
+            or_(scalar_strength.is_(None), scalar_strength != 0),
         )
-        exclude = exists(select(1).where(used_nsfw)).correlate(Generation)
-        return ~exclude
+        # json_each flattens JSON array at $.lora_name into rows of value column.
+        # Each entry is a JSON object: {lora_name: "...", strength_model: 0.5}.
+        json_each = func.json_each(Generation.parameters_json, "$.lora_name").table_valued("value")
+        entry_lora = func.json_extract(json_each.c.value, "$.lora_name")
+        entry_strength = func.json_extract(json_each.c.value, "$.strength_model")
+        used_array = and_(
+            Lora.name == entry_lora,
+            Lora.is_nsfw.is_(True),
+            or_(entry_strength.is_(None), entry_strength != 0),
+        )
+        exclude_scalar = exists(select(1).where(used_scalar)).correlate(Generation)
+        exclude_array = exists(select(1).where(used_array)).correlate(Generation, json_each)
+        return ~or_(exclude_scalar, exclude_array)
 
     def list(
         self,
