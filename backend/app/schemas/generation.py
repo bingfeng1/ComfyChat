@@ -20,6 +20,7 @@ class GenerationField(BaseModel):
     max: float | None = None
     step: float | None = None
     options: list[str] | None = None
+    is_array: bool = False
 
 
 class GenerationConfigIn(BaseModel):
@@ -53,6 +54,7 @@ class GenerationConfigSummaryOut(BaseModel):
     workflow_id: str
     workflow_name: str
     fields: list[GenerationField]
+    api_template: dict | None = None
     main_model: str | None = None
 
 

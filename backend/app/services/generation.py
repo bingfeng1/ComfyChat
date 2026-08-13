@@ -272,11 +272,22 @@ def apply_parameters(
     """把用户参数填入 API 模板，返回 (filled_template, effective_parameters)。
 
     effective_parameters 含所有字段的实际值（随机种子为生成后的值）。
+    is_array 字段: value 是 list of dicts,按 _apply_lora_chain_at 重建链。
     """
     filled = json.loads(json.dumps(api_template))
     effective: dict = {}
     for field in fields:
         key = field["key"]
+        if field.get("is_array"):
+            entries = parameters.get(key) or []
+            if not isinstance(entries, list):
+                raise ValueError(f"字段 {field['label']} 必须是数组")
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    raise ValueError(f"字段 {field['label']} 元素必须是对象")
+            effective[key] = entries
+            _apply_lora_chain_at(filled, field["node_id"], entries)
+            continue
         value = parameters.get(key)
         if field["type"] == "seed":
             is_random = bool(parameters.get(f"{key}_random"))
@@ -296,6 +307,99 @@ def apply_parameters(
     return filled, effective
 
 
+_LORA_TYPES = {"LoraLoaderModelOnly", "LoraLoader"}
+
+
+def _find_lora_anchor(filled: dict, anchor_node_id: str) -> dict | None:
+    """Locate the upstream/downstream of a single LoRA placeholder node.
+
+    Returns dict with: class_type, upstream, downstream_nid, downstream_input_name,
+    widget_inputs. Returns None if anchor_node_id is not a LoRA node.
+    """
+    if anchor_node_id not in filled:
+        return None
+    anchor = filled[anchor_node_id]
+    if anchor.get("class_type") not in _LORA_TYPES:
+        return None
+    upstream = anchor["inputs"].get("model")
+    downstream_nid: str | None = None
+    downstream_input_name: str | None = None
+    for nid, n in filled.items():
+        if nid == anchor_node_id:
+            continue
+        for inp_name, inp_value in n.get("inputs", {}).items():
+            if isinstance(inp_value, list) and len(inp_value) == 2 and inp_value[0] == anchor_node_id:
+                downstream_nid = nid
+                downstream_input_name = inp_name
+                break
+        if downstream_nid:
+            break
+    widget_inputs = [k for k, v in anchor["inputs"].items() if not isinstance(v, list)]
+    return {
+        "class_type": anchor["class_type"],
+        "upstream": upstream,
+        "downstream_nid": downstream_nid,
+        "downstream_input_name": downstream_input_name,
+        "widget_inputs": widget_inputs,
+    }
+
+
+def _apply_lora_chain_at(filled: dict, anchor_node_id: str, entries: list[dict]) -> None:
+    """Replace the LoRA anchor node with N nodes chained in place.
+
+    - Reads upstream from anchor_node_id.inputs.model
+    - Finds downstream consumer (any node whose model input references anchor)
+    - Removes anchor, creates N new nodes (id = max(digit IDs in filled) + i),
+      chains them: first.model = upstream, i>0.model = [new_ids[i-1], 0]
+    - Reconnects downstream consumer to new_last node
+    - No chain-walk back: each placeholder is independent. If two anchors are
+      both is_array, they apply sequentially and see each other's outputs.
+    """
+    meta = _find_lora_anchor(filled, anchor_node_id)
+    if meta is None:
+        return
+    if not entries:
+        # Anchor deleted, downstream should connect directly to upstream
+        upstream = meta["upstream"]
+        filled.pop(anchor_node_id, None)
+        if meta["downstream_nid"] and upstream is not None:
+            filled[meta["downstream_nid"]]["inputs"][meta["downstream_input_name"]] = upstream
+        return
+    # Compute max id BEFORE popping, so the new ids don't reuse anchor_node_id.
+    max_id = 0
+    anchor_id_int: int | None = None
+    if anchor_node_id.isdigit():
+        try:
+            anchor_id_int = int(anchor_node_id)
+        except ValueError:
+            anchor_id_int = None
+    for nid in filled:
+        if nid.isdigit():
+            try:
+                max_id = max(max_id, int(nid))
+            except ValueError:
+                pass
+    filled.pop(anchor_node_id, None)
+    new_ids: list[str] = []
+    for i, entry in enumerate(entries):
+        max_id += 1
+        if anchor_id_int is not None and max_id == anchor_id_int:
+            max_id += 1
+        nid = str(max_id)
+        new_ids.append(nid)
+        inputs: dict = {}
+        for wi in meta["widget_inputs"]:
+            if wi in entry:
+                inputs[wi] = entry[wi]
+        if i == 0:
+            inputs["model"] = meta["upstream"]
+        else:
+            inputs["model"] = [new_ids[i - 1], 0]
+        filled[nid] = {"class_type": meta["class_type"], "inputs": inputs}
+    if meta["downstream_nid"] and new_ids:
+        filled[meta["downstream_nid"]]["inputs"][meta["downstream_input_name"]] = [new_ids[-1], 0]
+
+
 def append_lora_trigger(
     filled: dict,
     fields: list[dict],
@@ -305,32 +409,71 @@ def append_lora_trigger(
     """把已选 LoRA 的 trigger_words 追加到正面提示词节点(仅当 strength > 0)。
 
     只改 filled(提交给 ComfyUI 的模板),不动 effective(入库参数)。
-    - 找不到 text 字段 / 无 LoRA / strength 缺失或 <= 0 / 无 trigger 时跳过。
-    - trigger 已存在于 text(大小写不敏感)时跳过去重。
-    - 追加格式:单独一行(f"{text}\\n{trigger}")。
+
+    支持两种输入形态:
+    - 数组 (is_array): effective["lora_name"] 是 list of {lora_name, strength_model}
+    - 标量 (向后兼容): effective["lora_name"] 是字符串, strength 来自 effective["strength_model"]
+    找不到 text 字段 / 无 LoRA / strength 缺失或 <= 0 / 无 trigger 时跳过。
+    trigger 已存在于 text(大小写不敏感)时跳过去重。
+    追加格式:单独一行(f"{text}\\n{trigger}")。
     """
     text_field = next(
         (f for f in fields if f.get("key") == "text" and f.get("type") == "text"),
         None,
     )
+    if text_field is None:
+        return
+    node_id = str(text_field["node_id"])
+    input_name = text_field["input_name"]
+    inputs = filled.get(node_id, {}).get("inputs", {})
+    current = inputs.get(input_name) or ""
+
+    from app.repositories.lora import LoraRepository
+    lora_repo = LoraRepository(session)
+
+    array_field = next(
+        (f for f in fields if f.get("is_array") and f.get("input_name") == "lora_name"),
+        None,
+    )
+    if array_field is not None:
+        entries = effective.get(array_field["key"])
+        if not isinstance(entries, list) or not entries:
+            return
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            ln = entry.get("lora_name")
+            if not isinstance(ln, str) or not ln:
+                continue
+            strength = entry.get("strength_model", 1)
+            try:
+                if strength is None or float(strength) <= 0:
+                    continue
+            except (TypeError, ValueError):
+                continue
+            trigger = (lora_repo.get_trigger_words(ln) or "").strip()
+            if not trigger:
+                continue
+            if trigger.lower() in str(current).lower():
+                continue
+            separator = "" if not str(current).strip() else "\n"
+            current = f"{current}{separator}{trigger}"
+        inputs[input_name] = current
+        return
+
+    # Back-compat: scalar lora_name + scalar strength_model
     lora_name = effective.get("lora_name")
     strength = effective.get("strength_model")
-    if text_field is None or not isinstance(lora_name, str) or not lora_name:
+    if not isinstance(lora_name, str) or not lora_name:
         return
     try:
         if strength is None or float(strength) <= 0:
             return
     except (TypeError, ValueError):
         return
-    from app.repositories.lora import LoraRepository
-
-    trigger = (LoraRepository(session).get_trigger_words(lora_name) or "").strip()
+    trigger = (lora_repo.get_trigger_words(lora_name) or "").strip()
     if not trigger:
         return
-    node_id = str(text_field["node_id"])
-    input_name = text_field["input_name"]
-    inputs = filled.get(node_id, {}).get("inputs", {})
-    current = inputs.get(input_name) or ""
     if trigger.lower() in str(current).lower():
         return
     separator = "" if not str(current).strip() else "\n"

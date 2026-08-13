@@ -92,12 +92,19 @@ export interface GenerationField {
   max?: number;
   step?: number;
   options?: string[];
+  is_array?: boolean;
+}
+
+export interface LoraEntry {
+  lora_name: string;
+  strength_model: number;
 }
 
 export interface GenerationConfigSummary {
   workflow_id: string;
   workflow_name: string;
   fields: GenerationField[];
+  api_template?: Record<string, unknown> | null;
   main_model?: string | null;
 }
 

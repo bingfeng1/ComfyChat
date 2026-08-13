@@ -820,3 +820,384 @@ def test_create_with_auto_add_trigger_false(session, tmp_path):
     })
     assert comfy.submitted["7"]["inputs"]["text"] == "a girl"
     assert json.loads(gen.parameters_json)["text"] == "a girl"
+
+
+# ---- is_array: per-anchor LoRA chain rebuild ---------------------------------
+
+LORA_API_TEMPLATE = {
+    "2": {"class_type": "UNETLoader", "inputs": {"unet_name": "u.safetensors", "weight_dtype": "default"}},
+    "23": {"class_type": "LoraLoaderModelOnly", "inputs": {"model": ["2", 0], "lora_name": "", "strength_model": 1.0}},
+    "15": {"class_type": "ModelSamplingAuraFlow", "inputs": {"model": ["23", 0], "shift": 5}},
+    "16": {"class_type": "KSampler", "inputs": {"model": ["15", 0], "seed": 0}},
+    "7": {"class_type": "CLIPTextEncode", "inputs": {"text": ""}},
+}
+
+LORA_ARRAY_FIELD = {
+    "key": "lora_name", "label": "LoRA", "type": "select", "node_id": "23",
+    "input_name": "lora_name", "default": "", "required": False, "is_array": True,
+}
+
+
+def test_apply_parameters_lora_array_single_entry():
+    """1 entry → 1 new node, model=upstream, downstream 指向新节点。"""
+    filled, effective = apply_parameters(
+        json.loads(json.dumps(LORA_API_TEMPLATE)),
+        [LORA_ARRAY_FIELD],
+        {"lora_name": [{"lora_name": "X.safetensors", "strength_model": 0.5}]},
+    )
+    assert "23" not in filled
+    new_ids = [nid for nid in filled if filled[nid]["class_type"] == "LoraLoaderModelOnly"]
+    assert len(new_ids) == 1
+    new_id = new_ids[0]
+    node = filled[new_id]
+    assert node["inputs"]["lora_name"] == "X.safetensors"
+    assert node["inputs"]["strength_model"] == 0.5
+    assert node["inputs"]["model"] == ["2", 0]
+    assert filled["15"]["inputs"]["model"] == [new_id, 0]
+    assert effective["lora_name"] == [{"lora_name": "X.safetensors", "strength_model": 0.5}]
+
+
+def test_apply_parameters_lora_array_multiple_entries():
+    """3 entries → 3 new nodes chained in place. downstream 指向最后一个。"""
+    filled, effective = apply_parameters(
+        json.loads(json.dumps(LORA_API_TEMPLATE)),
+        [LORA_ARRAY_FIELD],
+        {"lora_name": [
+            {"lora_name": "A.safetensors", "strength_model": 0.5},
+            {"lora_name": "B.safetensors", "strength_model": 0.7},
+            {"lora_name": "C.safetensors", "strength_model": 0.9},
+        ]},
+    )
+    assert "23" not in filled
+    new_ids = sorted(
+        nid for nid in filled
+        if filled[nid]["class_type"] == "LoraLoaderModelOnly"
+    )
+    assert len(new_ids) == 3
+    a, b, c = new_ids
+    assert filled[a]["inputs"]["model"] == ["2", 0]
+    assert filled[a]["inputs"]["lora_name"] == "A.safetensors"
+    assert filled[b]["inputs"]["model"] == [a, 0]
+    assert filled[b]["inputs"]["lora_name"] == "B.safetensors"
+    assert filled[c]["inputs"]["model"] == [b, 0]
+    assert filled[c]["inputs"]["lora_name"] == "C.safetensors"
+    assert filled["15"]["inputs"]["model"] == [c, 0]
+
+
+def test_apply_parameters_lora_array_empty():
+    """0 entries → anchor 删除,downstream 直接接 upstream。"""
+    filled, effective = apply_parameters(
+        json.loads(json.dumps(LORA_API_TEMPLATE)),
+        [LORA_ARRAY_FIELD],
+        {"lora_name": []},
+    )
+    assert "23" not in filled
+    assert filled["15"]["inputs"]["model"] == ["2", 0]
+    assert effective["lora_name"] == []
+
+
+def test_apply_parameters_lora_array_node_ids_dont_clash():
+    """新节点 ID 不会与模板中现有数字 ID 冲突,且按顺序递增。"""
+    tmpl = json.loads(json.dumps(LORA_API_TEMPLATE))
+    # 在模板里塞一个非 LoRA 数字 ID = 999,确认新节点 ID 跳到 1000
+    tmpl["999"] = {"class_type": "Note", "inputs": {}}
+    filled, _ = apply_parameters(
+        tmpl,
+        [LORA_ARRAY_FIELD],
+        {"lora_name": [{"lora_name": "X.safetensors", "strength_model": 0.5}]},
+    )
+    new_ids = [nid for nid in filled if filled[nid]["class_type"] == "LoraLoaderModelOnly"]
+    assert len(new_ids) == 1
+    assert int(new_ids[0]) > 999
+
+
+def test_apply_parameters_lora_array_two_anchors_independent():
+    """两个 LoRA 占位都标 array,apply 顺序执行,后者看到前者的产物。"""
+    tmpl = {
+        "2": {"class_type": "UNETLoader", "inputs": {"unet_name": "u.safetensors", "weight_dtype": "default"}},
+        "23": {"class_type": "LoraLoaderModelOnly", "inputs": {"model": ["2", 0], "lora_name": "", "strength_model": 1.0}},
+        "24": {"class_type": "LoraLoaderModelOnly", "inputs": {"model": ["23", 0], "lora_name": "", "strength_model": 1.0}},
+        "15": {"class_type": "ModelSamplingAuraFlow", "inputs": {"model": ["24", 0], "shift": 5}},
+        "16": {"class_type": "KSampler", "inputs": {"model": ["15", 0], "seed": 0}},
+        "7": {"class_type": "CLIPTextEncode", "inputs": {"text": ""}},
+    }
+    fields = [
+        {"key": "lora_name", "label": "L1", "type": "select", "node_id": "23", "input_name": "lora_name", "default": "", "is_array": True},
+        {"key": "lora_name_1", "label": "L2", "type": "select", "node_id": "24", "input_name": "lora_name", "default": "", "is_array": True},
+    ]
+    filled, _ = apply_parameters(
+        json.loads(json.dumps(tmpl)),
+        fields,
+        {
+            "lora_name": [
+                {"lora_name": "A.safetensors", "strength_model": 0.5},
+                {"lora_name": "B.safetensors", "strength_model": 0.6},
+            ],
+            "lora_name_1": [
+                {"lora_name": "X.safetensors", "strength_model": 0.7},
+            ],
+        },
+    )
+    a_nodes = sorted(nid for nid in filled if filled[nid]["class_type"] == "LoraLoaderModelOnly")
+    # 2 个 (A, B) 替换 23 + 1 个 (X) 替换 24 = 3 个
+    assert len(a_nodes) == 3
+    # 链顺序: A → B 接 23 上游, X 接 B 后, 15 接 X
+    last = a_nodes[-1]
+    second_last = a_nodes[-2]
+    assert filled[last]["inputs"]["lora_name"] == "X.safetensors"
+    assert filled[last]["inputs"]["model"] == [second_last, 0]
+    assert filled["15"]["inputs"]["model"] == [last, 0]
+
+
+def test_apply_parameters_lora_array_mixed_with_scalar_fields():
+    """is_array 字段与 scalar 字段共存,各自正常处理。"""
+    fields = [
+        LORA_ARRAY_FIELD,
+        {"key": "text", "label": "提示词", "type": "text", "node_id": "7", "input_name": "text", "default": "", "required": False},
+    ]
+    filled, effective = apply_parameters(
+        json.loads(json.dumps(LORA_API_TEMPLATE)),
+        fields,
+        {
+            "lora_name": [{"lora_name": "X.safetensors", "strength_model": 0.5}],
+            "text": "hello",
+        },
+    )
+    assert filled["7"]["inputs"]["text"] == "hello"
+    assert effective["text"] == "hello"
+    assert effective["lora_name"] == [{"lora_name": "X.safetensors", "strength_model": 0.5}]
+
+
+def test_apply_parameters_lora_array_rejects_non_list():
+    """is_array 但 value 不是 list → ValueError。"""
+    with pytest.raises(ValueError):
+        apply_parameters(
+            json.loads(json.dumps(LORA_API_TEMPLATE)),
+            [LORA_ARRAY_FIELD],
+            {"lora_name": "X.safetensors"},
+        )
+
+
+def test_apply_parameters_lora_array_rejects_non_dict_entry():
+    """is_array list 中非 dict 元素 → ValueError。"""
+    with pytest.raises(ValueError):
+        apply_parameters(
+            json.loads(json.dumps(LORA_API_TEMPLATE)),
+            [LORA_ARRAY_FIELD],
+            {"lora_name": ["X.safetensors"]},
+        )
+
+
+# ---- append_lora_trigger with array -----------------------------------------
+
+ARRAY_TRIGGER_FIELDS = [
+    {"key": "text", "label": "正面提示词", "type": "text", "node_id": "7", "input_name": "text", "default": "", "required": False},
+    {"key": "text_1", "label": "负面提示词", "type": "text", "node_id": "8", "input_name": "text", "default": "", "required": False},
+    {"key": "lora_name", "label": "LoRA", "type": "select", "node_id": "23", "input_name": "lora_name", "default": "", "is_array": True},
+]
+
+
+def _filled_with_array_effectiv(text="", entries=None):
+    filled = {
+        "7": {"class_type": "CLIPTextEncode", "inputs": {"text": text}},
+        "8": {"class_type": "CLIPTextEncode", "inputs": {"text": "blurry"}},
+    }
+    effective = {"text": text, "lora_name": entries or []}
+    return filled, effective
+
+
+def test_append_lora_trigger_array_multiple_entries(session):
+    """多 LoRA trigger 都拼到 text,先后顺序与 entries 一致。"""
+    _seed_lora(session, "mumu.safetensors", "mumu")
+    _seed_lora(session, "cat.safetensors", "cat")
+    filled, effective = _filled_with_array_effectiv(
+        text="a girl",
+        entries=[
+            {"lora_name": "mumu.safetensors", "strength_model": 1.0},
+            {"lora_name": "cat.safetensors", "strength_model": 0.5},
+        ],
+    )
+    append_lora_trigger(filled, ARRAY_TRIGGER_FIELDS, effective, session)
+    assert filled["7"]["inputs"]["text"] == "a girl\nmumu\ncat"
+
+
+def test_append_lora_trigger_array_skips_zero_strength_entry(session):
+    """单条 strength=0 跳过,其他正常追加。"""
+    _seed_lora(session, "mumu.safetensors", "mumu")
+    _seed_lora(session, "cat.safetensors", "cat")
+    filled, effective = _filled_with_array_effectiv(
+        text="a girl",
+        entries=[
+            {"lora_name": "mumu.safetensors", "strength_model": 0},
+            {"lora_name": "cat.safetensors", "strength_model": 0.5},
+        ],
+    )
+    append_lora_trigger(filled, ARRAY_TRIGGER_FIELDS, effective, session)
+    assert filled["7"]["inputs"]["text"] == "a girl\ncat"
+
+
+def test_append_lora_trigger_array_dedup_within_session(session):
+    """trigger 已存在则跳过;不重复添加。"""
+    _seed_lora(session, "mumu.safetensors", "mumu")
+    _seed_lora(session, "cat.safetensors", "cat")
+    filled, effective = _filled_with_array_effectiv(
+        text="a girl, mumu",
+        entries=[
+            {"lora_name": "mumu.safetensors", "strength_model": 1.0},
+            {"lora_name": "cat.safetensors", "strength_model": 1.0},
+        ],
+    )
+    append_lora_trigger(filled, ARRAY_TRIGGER_FIELDS, effective, session)
+    assert filled["7"]["inputs"]["text"] == "a girl, mumu\ncat"
+
+
+def test_append_lora_trigger_array_empty_list(session):
+    """空 list → text 不变。"""
+    filled, effective = _filled_with_array_effectiv(text="a girl", entries=[])
+    append_lora_trigger(filled, ARRAY_TRIGGER_FIELDS, effective, session)
+    assert filled["7"]["inputs"]["text"] == "a girl"
+
+
+def test_append_lora_trigger_array_does_not_touch_negative(session):
+    _seed_lora(session, "mumu.safetensors", "mumu")
+    filled, effective = _filled_with_array_effectiv(
+        text="a girl",
+        entries=[{"lora_name": "mumu.safetensors", "strength_model": 1.0}],
+    )
+    append_lora_trigger(filled, ARRAY_TRIGGER_FIELDS, effective, session)
+    assert filled["8"]["inputs"]["text"] == "blurry"
+
+
+def test_append_lora_trigger_array_with_create_end_to_end(session, tmp_path):
+    """is_array lora 字段 + auto_add_trigger → 实际提交到 ComfyUI 的 prompt 包含所有 trigger。"""
+    api_template = {
+        "7": {"class_type": "CLIPTextEncode", "inputs": {"text": ""}},
+        "8": {"class_type": "CLIPTextEncode", "inputs": {"text": "blurry"}},
+        "23": {"class_type": "LoraLoaderModelOnly", "inputs": {"model": ["2", 0], "lora_name": "", "strength_model": 1.0}},
+        "2": {"class_type": "UNETLoader", "inputs": {"unet_name": "u.safetensors", "weight_dtype": "default"}},
+        "15": {"class_type": "ModelSamplingAuraFlow", "inputs": {"model": ["23", 0], "shift": 5}},
+        "16": {"class_type": "KSampler", "inputs": {"model": ["15", 0], "seed": 0}},
+    }
+    WorkflowGenerationConfigRepository(session).upsert("wf1", api_template, ARRAY_TRIGGER_FIELDS)
+    _seed_lora(session, "mumu.safetensors", "mumu")
+    _seed_lora(session, "cat.safetensors", "cat")
+    settings = _settings(tmp_path)
+    comfy = FakeComfy()
+    svc = _service(session, settings, comfy)
+    gen = svc.create("wf1", {
+        "text": "a girl",
+        "lora_name": [
+            {"lora_name": "mumu.safetensors", "strength_model": 1.0},
+            {"lora_name": "cat.safetensors", "strength_model": 0.8},
+        ],
+        "auto_add_trigger": True,
+    })
+    assert comfy.submitted["7"]["inputs"]["text"] == "a girl\nmumu\ncat"
+    params = json.loads(gen.parameters_json)
+    assert params["text"] == "a girl"
+    assert params["lora_name"] == [
+        {"lora_name": "mumu.safetensors", "strength_model": 1.0},
+        {"lora_name": "cat.safetensors", "strength_model": 0.8},
+    ]
+    # 提交了两条 LoRA 节点
+    lora_ids = [nid for nid in comfy.submitted if comfy.submitted[nid]["class_type"] == "LoraLoaderModelOnly"]
+    assert len(lora_ids) == 2
+    # 链头接 2,链尾接 15
+    assert comfy.submitted["15"]["inputs"]["model"][0] in lora_ids
+
+
+def test_apply_parameters_lora_array_anchor_missing_in_template():
+    """anchor node_id 在 api_template 中不存在 → 静默跳过,fields 走过后 remaining 字段不受影响。"""
+    fields = [
+        {"key": "lora_name", "label": "L", "type": "select", "node_id": "MISSING", "input_name": "lora_name", "is_array": True},
+        {"key": "text", "label": "T", "type": "text", "node_id": "7", "input_name": "text", "default": "", "required": False},
+    ]
+    filled, effective = apply_parameters(
+        json.loads(json.dumps(LORA_API_TEMPLATE)),
+        fields,
+        {"lora_name": [{"lora_name": "X", "strength_model": 0.5}], "text": "hi"},
+    )
+    assert filled["7"]["inputs"]["text"] == "hi"
+    assert effective["lora_name"] == [{"lora_name": "X", "strength_model": 0.5}]
+
+
+def test_apply_parameters_lora_array_no_downstream():
+    """anchor 没有下游消费者(例如直接接 KSampler 但 model 不是 link)→ 安全跳过 reconnect。"""
+    # 构造: 2 → 23 → KSampler(没有中间 modeler)
+    tmpl = {
+        "2": {"class_type": "UNETLoader", "inputs": {"unet_name": "u", "weight_dtype": "default"}},
+        "23": {"class_type": "LoraLoaderModelOnly", "inputs": {"model": ["2", 0], "lora_name": "", "strength_model": 1.0}},
+        "16": {"class_type": "KSampler", "inputs": {"model": ["23", 0], "seed": 0}},
+    }
+    filled, _ = apply_parameters(
+        json.loads(json.dumps(tmpl)),
+        [LORA_ARRAY_FIELD],
+        {"lora_name": [{"lora_name": "X.safetensors", "strength_model": 0.5}]},
+    )
+    assert "23" not in filled
+    new_ids = [nid for nid in filled if filled[nid]["class_type"] == "LoraLoaderModelOnly"]
+    assert len(new_ids) == 1
+    # KSampler 的 model 输入被重写为 [new_id, 0]
+    assert filled["16"]["inputs"]["model"] == [new_ids[0], 0]
+
+
+def test_apply_parameters_lora_array_anchor_middle_of_chain():
+    """anchor 夹在两个 LoRA 节点之间 → 只替换 anchor,前后节点保留。"""
+    tmpl = {
+        "2": {"class_type": "UNETLoader", "inputs": {"unet_name": "u", "weight_dtype": "default"}},
+        "23": {"class_type": "LoraLoaderModelOnly", "inputs": {"model": ["2", 0], "lora_name": "", "strength_model": 1.0}},
+        "24": {"class_type": "LoraLoaderModelOnly", "inputs": {"model": ["23", 0], "lora_name": "", "strength_model": 1.0}},
+        "15": {"class_type": "ModelSamplingAuraFlow", "inputs": {"model": ["24", 0], "shift": 5}},
+    }
+    fields = [
+        {"key": "lora_name", "label": "L", "type": "select", "node_id": "24", "input_name": "lora_name", "is_array": True},
+    ]
+    filled, _ = apply_parameters(
+        json.loads(json.dumps(tmpl)),
+        fields,
+        {"lora_name": [
+            {"lora_name": "X.safetensors", "strength_model": 0.5},
+            {"lora_name": "Y.safetensors", "strength_model": 0.6},
+        ]},
+    )
+    # 23 保留,24 被 X,Y 替换
+    assert "23" in filled
+    assert "24" not in filled
+    new_ids = sorted(nid for nid in filled if filled[nid]["class_type"] == "LoraLoaderModelOnly")
+    assert len(new_ids) == 3  # 23, X, Y
+    # 23 仍接 2
+    assert filled["23"]["inputs"]["model"] == ["2", 0]
+    # X 接 23
+    x, y = [nid for nid in new_ids if nid != "23"]
+    assert filled[x]["inputs"]["model"] == ["23", 0]
+    assert filled[y]["inputs"]["model"] == [x, 0]
+    # 15 接 Y
+    assert filled["15"]["inputs"]["model"] == [y, 0]
+
+
+def test_append_lora_trigger_array_skips_non_dict_entry(session):
+    """list 含非 dict 元素 → 跳过该元素,继续处理后续。"""
+    _seed_lora(session, "cat.safetensors", "cat")
+    filled, effective = _filled_with_array_effectiv(
+        text="a girl",
+        entries=[
+            "not a dict",
+            {"lora_name": "cat.safetensors", "strength_model": 1.0},
+        ],
+    )
+    append_lora_trigger(filled, ARRAY_TRIGGER_FIELDS, effective, session)
+    assert filled["7"]["inputs"]["text"] == "a girl\ncat"
+
+
+def test_append_lora_trigger_array_skips_empty_lora_name(session):
+    """entry.lora_name 为空字符串 → 跳过。"""
+    _seed_lora(session, "cat.safetensors", "cat")
+    filled, effective = _filled_with_array_effectiv(
+        text="a girl",
+        entries=[
+            {"lora_name": "", "strength_model": 1.0},
+            {"lora_name": "cat.safetensors", "strength_model": 1.0},
+        ],
+    )
+    append_lora_trigger(filled, ARRAY_TRIGGER_FIELDS, effective, session)
+    assert filled["7"]["inputs"]["text"] == "a girl\ncat"

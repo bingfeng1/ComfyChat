@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from app.repositories.generation import GenerationRepository
@@ -145,3 +147,98 @@ def test_update_poll_miss_count(session):
 def test_update_poll_miss_count_noop_when_missing(session):
     repo = _mk_repo(session)
     repo.update_poll_miss_count("nonexistent", 5)
+
+
+def _seed_nsfw_lora(session, name, is_nsfw=True):
+    from app.models.lora import Lora
+    session.add(Lora(name=name, is_nsfw=is_nsfw))
+    session.commit()
+
+
+def test_exclude_nsfw_handles_scalar_lora_name(session):
+    """老 generation 的 parameters_json.lora_name 是字符串 → json_each 不能直接用,需 CASE 守卫。"""
+    repo = _mk_repo(session)
+    _seed_nsfw_lora(session, "nsfw_a.safetensors", is_nsfw=True)
+    _seed_nsfw_lora(session, "safe_a.safetensors", is_nsfw=False)
+    # scalar lora_name → 整条记录应被排除
+    repo.create("wf1", "z", {"lora_name": "nsfw_a.safetensors", "strength_model": 0.8}, "success", "p1")
+    repo.create("wf1", "z", {"lora_name": "safe_a.safetensors", "strength_model": 0.8}, "success", "p2")
+    items = repo.list(exclude_nsfw=True)
+    assert len(items) == 1
+    assert json.loads(items[0].parameters_json)["lora_name"] == "safe_a.safetensors"
+
+
+def test_exclude_nsfw_handles_array_lora_name(session):
+    """新 generation 的 parameters_json.lora_name 是 array of dicts → json_each 走 array 路径。"""
+    import json as _json
+    repo = _mk_repo(session)
+    _seed_nsfw_lora(session, "nsfw_b.safetensors", is_nsfw=True)
+    _seed_nsfw_lora(session, "safe_b.safetensors", is_nsfw=False)
+    # array lora_name + 包含 nsfw → 整条排除
+    repo.create("wf1", "z", {
+        "lora_name": [
+            {"lora_name": "safe_b.safetensors", "strength_model": 1.0},
+            {"lora_name": "nsfw_b.safetensors", "strength_model": 0.5},
+        ],
+    }, "success", "p3")
+    # array 全是 safe → 保留
+    repo.create("wf1", "z", {
+        "lora_name": [
+            {"lora_name": "safe_b.safetensors", "strength_model": 1.0},
+        ],
+    }, "success", "p4")
+    items = repo.list(exclude_nsfw=True)
+    assert len(items) == 1
+    assert _json.loads(items[0].parameters_json)["lora_name"][0]["lora_name"] == "safe_b.safetensors"
+
+
+def test_exclude_nsfw_handles_missing_lora_name(session):
+    """$.lora_name 字段缺失(json_each 会抛 malformed JSON)→ CASE 守卫让 query 不出错。"""
+    repo = _mk_repo(session)
+    _seed_nsfw_lora(session, "nsfw_c.safetensors", is_nsfw=True)
+    # 没有任何 lora 字段
+    repo.create("wf1", "z", {"seed": 1, "width": 512, "height": 512}, "success", "p5")
+    repo.create("wf1", "z", {"lora_name": "nsfw_c.safetensors", "strength_model": 0.5}, "success", "p6")
+    items = repo.list(exclude_nsfw=True)
+    # 第二条 (scalar nsfw) 应被排除,第一条 (无 lora) 保留
+    assert len(items) == 1
+    assert "lora_name" not in json.loads(items[0].parameters_json)
+
+
+def test_exclude_nsfw_skips_zero_strength(session):
+    """strength_model=0 视为未应用,不触发 NSFW 排除。"""
+    repo = _mk_repo(session)
+    _seed_nsfw_lora(session, "nsfw_d.safetensors", is_nsfw=True)
+    repo.create("wf1", "z", {"lora_name": "nsfw_d.safetensors", "strength_model": 0}, "success", "p7")
+    items = repo.list(exclude_nsfw=True)
+    assert len(items) == 1
+
+
+def test_exclude_nsfw_array_zero_strength_entry(session):
+    """array 中 strength_model=0 的 NSFW entry 不应触发整条排除。"""
+    import json as _json
+    repo = _mk_repo(session)
+    _seed_nsfw_lora(session, "nsfw_e.safetensors", is_nsfw=True)
+    _seed_nsfw_lora(session, "safe_e.safetensors", is_nsfw=False)
+    repo.create("wf1", "z", {
+        "lora_name": [
+            {"lora_name": "safe_e.safetensors", "strength_model": 1.0},
+            {"lora_name": "nsfw_e.safetensors", "strength_model": 0},
+        ],
+    }, "success", "p8")
+    items = repo.list(exclude_nsfw=True)
+    # nsfw_e strength=0 → 不排除 → 记录保留
+    assert len(items) == 1
+
+
+def test_exclude_nsfw_count_matches_list(session):
+    """count 和 list 的过滤条件应一致。"""
+    repo = _mk_repo(session)
+    _seed_nsfw_lora(session, "nsfw_f.safetensors", is_nsfw=True)
+    _seed_nsfw_lora(session, "safe_f.safetensors", is_nsfw=False)
+    repo.create("wf1", "z", {"lora_name": "nsfw_f.safetensors", "strength_model": 0.5}, "success", "pA")
+    repo.create("wf1", "z", {"lora_name": "safe_f.safetensors", "strength_model": 0.5}, "success", "pB")
+    repo.create("wf1", "z", {"seed": 1}, "success", "pC")
+    listed = repo.list(exclude_nsfw=True)
+    counted = repo.count(exclude_nsfw=True)
+    assert len(listed) == counted == 2

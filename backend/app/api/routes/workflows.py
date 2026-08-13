@@ -67,11 +67,13 @@ def list_generation_configs(
 ) -> dict:
     items = []
     for cfg, name in config_repo.list_configured():
+        api_template = json.loads(cfg.api_template)
         items.append(GenerationConfigSummaryOut(
             workflow_id=cfg.workflow_id,
             workflow_name=name,
             fields=[f for f in json.loads(cfg.fields_json)],
-            main_model=main_model_from_template(json.loads(cfg.api_template)),
+            api_template=api_template,
+            main_model=main_model_from_template(api_template),
         ))
     return {"items": items}
 
@@ -121,6 +123,20 @@ def discover_generation_config(
             object_info = None
     api_template = workflow_to_api_template(body_json, object_info)
     fields = discover_fields(body_json, object_info)
+
+    # Identify LoRA placeholder nodes so their strength_model siblings become
+    # sub-properties of the lora_name entry (not separate fields). The user
+    # marks `lora_name` as is_array in the config modal; strength_model then
+    # lives inside each entry's {lora_name, strength_model} dict.
+    lora_node_ids = {
+        str(n.get("id"))
+        for n in body_json.get("nodes", [])
+        if n.get("type") in ("LoraLoaderModelOnly", "LoraLoader")
+    }
+    fields = [f for f in fields if not (
+        f.get("input_name") == "strength_model" and str(f.get("node_id")) in lora_node_ids
+    )]
+
     seen: set[str] = set()
     for f in fields:
         base = f["key"]
