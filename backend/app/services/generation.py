@@ -64,6 +64,11 @@ def _object_info_schema(object_info: dict | None, node_type: str, input_name: st
 
     返回 dict 含可选的 min/max/step/options/control_after_generate。
     COMBO 类型的 options 来自 entry[0](列表),会并入返回的 dict。
+
+    动态 COMBO(如 ResizeImageMaskNode 的 resize_type)的子输入名是
+    "<父输入名>.<子输入名>"(如 resize_type.multiplier),父输入本身是
+    COMFY_DYNAMICCOMBO_V3,子输入的 schema 嵌套在对应 option 的 inputs 里。
+    这里按前缀拆分后递归查找子输入,合并所有匹配 option 的元数据。
     """
     if not object_info:
         return None
@@ -81,6 +86,33 @@ def _object_info_schema(object_info: dict | None, node_type: str, input_name: st
         if len(entry) > 1 and isinstance(entry[1], dict):
             meta.update(entry[1])
         return meta
+
+    if "." in input_name:
+        parent_name, child_name = input_name.split(".", 1)
+        for bucket in ("required", "optional"):
+            parent_entry = (inp.get(bucket) or {}).get(parent_name)
+            if parent_entry is None or len(parent_entry) < 2:
+                continue
+            parent_schema = parent_entry[1] if isinstance(parent_entry[1], dict) else {}
+            options = parent_schema.get("options")
+            if not isinstance(options, list):
+                continue
+            merged: dict = {}
+            for opt in options:
+                if not isinstance(opt, dict):
+                    continue
+                opt_inputs = opt.get("inputs") or {}
+                for sub_bucket in ("required", "optional"):
+                    sub_entry = (opt_inputs.get(sub_bucket) or {}).get(child_name)
+                    if sub_entry is None:
+                        continue
+                    sub_meta: dict = {}
+                    if isinstance(sub_entry[0], list):
+                        sub_meta["options"] = sub_entry[0]
+                    if len(sub_entry) > 1 and isinstance(sub_entry[1], dict):
+                        sub_meta.update(sub_entry[1])
+                    merged.update(sub_meta)
+            return merged or None
     return None
 
 

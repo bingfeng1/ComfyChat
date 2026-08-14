@@ -9,6 +9,8 @@ from app.models.generation import Generation
 from app.repositories.generation import GenerationRepository, WorkflowGenerationConfigRepository
 from app.services.generation import (
     GenerationService,
+    _field_meta,
+    _object_info_schema,
     append_lora_trigger,
     apply_parameters,
     discover_fields,
@@ -1201,3 +1203,91 @@ def test_append_lora_trigger_array_skips_empty_lora_name(session):
     )
     append_lora_trigger(filled, ARRAY_TRIGGER_FIELDS, effective, session)
     assert filled["7"]["inputs"]["text"] == "a girl\ncat"
+
+
+# ---- 动态 COMBO 子输入 schema 解析 ----
+
+DYNAMIC_COMBO_OBJECT_INFO = {
+    "ResizeImageMaskNode": {
+        "input": {
+            "required": {
+                "input": ["COMFY_MATCHTYPE_V3", {}],
+                "resize_type": [
+                    "COMFY_DYNAMICCOMBO_V3",
+                    {
+                        "options": [
+                            {
+                                "key": "scale dimensions",
+                                "inputs": {
+                                    "required": {
+                                        "width": ["INT", {"default": 512, "min": 0, "max": 16384, "step": 1}],
+                                    }
+                                },
+                            },
+                            {
+                                "key": "scale by multiplier",
+                                "inputs": {
+                                    "required": {
+                                        "multiplier": ["FLOAT", {"default": 1.0, "min": 0.01, "max": 8.0, "step": 0.01}],
+                                    }
+                                },
+                            },
+                        ]
+                    },
+                ],
+            }
+        }
+    }
+}
+
+
+def test_object_info_schema_plain_input():
+    """普通输入直接命中 object_info 的 required/optional。"""
+    schema = _object_info_schema(DYNAMIC_COMBO_OBJECT_INFO, "ResizeImageMaskNode", "resize_type")
+    assert schema is not None
+    assert isinstance(schema["options"], list)
+
+
+def test_object_info_schema_dynamic_combo_child():
+    """动态 COMBO 子输入(父输入名.子输入名)应从对应 option 的 inputs 中解析。"""
+    schema = _object_info_schema(DYNAMIC_COMBO_OBJECT_INFO, "ResizeImageMaskNode", "resize_type.multiplier")
+    assert schema is not None
+    assert schema["min"] == 0.01
+    assert schema["max"] == 8.0
+    assert schema["step"] == 0.01
+
+
+def test_object_info_schema_dynamic_combo_child_multiple_options():
+    """同一子输入名出现在多个 option 中时合并所有元数据。"""
+    obj = {
+        "ResizeImageMaskNode": {
+            "input": {
+                "required": {
+                    "resize_type": [
+                        "COMFY_DYNAMICCOMBO_V3",
+                        {
+                            "options": [
+                                {"key": "a", "inputs": {"optional": {"size": ["INT", {"min": 1, "max": 100}]}}},
+                                {"key": "b", "inputs": {"optional": {"size": ["INT", {"step": 5}]}}},
+                            ]
+                        },
+                    ],
+                }
+            }
+        }
+    }
+    schema = _object_info_schema(obj, "ResizeImageMaskNode", "resize_type.size")
+    assert schema["min"] == 1
+    assert schema["max"] == 100
+    assert schema["step"] == 5
+
+
+def test_object_info_schema_dynamic_combo_child_missing():
+    """子输入不在任何 option 中 → None。"""
+    assert _object_info_schema(DYNAMIC_COMBO_OBJECT_INFO, "ResizeImageMaskNode", "resize_type.nope") is None
+
+
+def test_field_meta_dynamic_combo_child():
+    """_field_meta 应从动态 COMBO 子输入提取 min/max/step。"""
+    meta = _field_meta(DYNAMIC_COMBO_OBJECT_INFO, "ResizeImageMaskNode", "resize_type.multiplier")
+    assert meta == {"min": 0.01, "max": 8.0, "step": 0.01}

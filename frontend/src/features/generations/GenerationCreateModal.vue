@@ -620,10 +620,10 @@ const autoTriggerPreview = computed(() => {
             <el-input-number
               v-else-if="f.type === 'number'"
               :model-value="values[f.key] as number | undefined"
-              @update:model-value="(v: number | undefined) => values[f.key] = (v ?? 0)"
-              :min="f.min"
-              :max="f.max"
-              :step="f.step"
+              @update:model-value="(v: number | undefined) => values[f.key] = (v ?? (typeof f.default === 'number' ? f.default : 0))"
+              :min="f.min ?? undefined"
+              :max="f.max ?? undefined"
+              :step="f.step ?? undefined"
               controls-position="right"
               style="width: 100%"
             />

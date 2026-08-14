@@ -4,6 +4,7 @@ import AutoImport from "unplugin-auto-import/vite";
 import Components from "unplugin-vue-components/vite";
 import { ElementPlusResolver } from "unplugin-vue-components/resolvers";
 import { fileURLToPath, URL } from "node:url";
+import vueDevTools from 'vite-plugin-vue-devtools'
 
 const backendPort = process.env.BACKEND_PORT ?? "8000";
 const frontendPort = process.env.FRONTEND_PORT ?? "5173";
@@ -13,6 +14,7 @@ export default defineConfig({
     vue(),
     AutoImport({ resolvers: [ElementPlusResolver()] }),
     Components({ resolvers: [ElementPlusResolver({ styleExtension: "scss" })] }),
+    vueDevTools(),
   ],
   resolve: {
     alias: {
