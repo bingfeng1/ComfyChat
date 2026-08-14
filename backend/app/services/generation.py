@@ -159,6 +159,13 @@ def workflow_to_api_template(body_json: dict, object_info: dict | None = None) -
     - widget 输入: 从 widgets_values 取值
     - 连线输入: 解析 links 数组为 [from_node_id, from_slot] 引用
     links 结构: [id, from_node, from_slot, to_node, to_slot, type]
+
+    注意: ComfyUI UI 允许一个输入既带 link 又带 widget(如 MiniMaxH3ImageToVideo
+    的 length 同时连 ComfyMathExpression 输出又有 widgets_values 默认值 73)。
+    连线输入是真正的"运行时值",widget 值只是 UI 上的快照。提交 /prompt 时
+    若用 widget 值覆盖 link 引用,ComfyUI 会用字面量而忽略连线节点,导致
+    duration/aspect-ratio 计算节点失效。这里对已连线的 widget 输入跳过
+    widget 值写入,让 link 引用独占 inputs[name]。
     """
     links = body_json.get("links", [])
     link_map: dict[tuple[str, int], tuple[str, int]] = {}
@@ -178,10 +185,22 @@ def workflow_to_api_template(body_json: dict, object_info: dict | None = None) -
             src = link_map.get((node_id, idx))
             if src:
                 inputs[inp["name"]] = [src[0], src[1]]
-        # widget 输入
-        widget_names = [i["name"] for i in node.get("inputs", []) if i.get("widget")]
-        widget_values = node.get("widgets_values") or []
-        for name, value in _align_widgets(widget_names, widget_values, object_info, node_type):
+        # widget 输入:跑全量对齐(含 control_after_generate 跳位),
+        # 再丢弃与连线共存的 widget 值(避免覆盖 link 引用)。
+        all_widget_inputs = [i for i in node.get("inputs", []) if i.get("widget")]
+        all_widget_values = node.get("widgets_values") or []
+        linked_widget_indices = {
+            idx for idx, inp in enumerate(all_widget_inputs) if inp.get("link") is not None
+        }
+        pairs = _align_widgets(
+            [i["name"] for i in all_widget_inputs],
+            all_widget_values,
+            object_info,
+            node_type,
+        )
+        for idx, (name, value) in enumerate(pairs):
+            if idx in linked_widget_indices:
+                continue
             inputs[name] = value
         result[node_id] = {"class_type": node_type, "inputs": inputs}
     return result
@@ -260,16 +279,29 @@ def discover_fields(body_json: dict, object_info: dict | None = None) -> list[di
     """从 UI 格式 body 返回候选字段(形状与 GenerationField 一致)。
 
     只为值类型是标量(str/int/float/bool/None)的 widget 输入生成候选。
-    连线输入(带 'link')跳过。带 object_info 时补 min/max/step/options 与类型。
+    连线输入(带 'link')跳过;既带 link 又带 widget 的输入也跳过,因为其
+    运行值由上游节点决定,UI 上的 widget 默认值是占位不是真值。
+    带 object_info 时补 min/max/step/options 与类型。
     """
     cond_labels = _conditioning_labels(body_json)
     candidates: list[dict] = []
     for node in body_json.get("nodes", []):
         node_id = str(node["id"])
         node_type = node.get("type", "")
-        widget_names = [i["name"] for i in node.get("inputs", []) if i.get("widget")]
-        widget_values = node.get("widgets_values") or []
-        for name, value in _align_widgets(widget_names, widget_values, object_info, node_type):
+        all_widget_inputs = [i for i in node.get("inputs", []) if i.get("widget")]
+        all_widget_values = node.get("widgets_values") or []
+        linked_widget_indices = {
+            idx for idx, inp in enumerate(all_widget_inputs) if inp.get("link") is not None
+        }
+        pairs = _align_widgets(
+            [i["name"] for i in all_widget_inputs],
+            all_widget_values,
+            object_info,
+            node_type,
+        )
+        for idx, (name, value) in enumerate(pairs):
+            if idx in linked_widget_indices:
+                continue
             if _is_loader_field(node_type, name):
                 continue
             if not isinstance(value, (str, int, float, bool)) and value is not None:

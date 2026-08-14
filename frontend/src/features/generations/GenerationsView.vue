@@ -6,6 +6,7 @@ import GenerationDetailModal from "./GenerationDetailModal.vue";
 import { useGenerations } from "./useGenerations";
 import { api } from "@/services/api";
 import type { GenerationSummary } from "@/types/api";
+import { mediaTypeOf, type MediaType } from "./mediaType";
 
 const {
   items,
@@ -75,20 +76,44 @@ function fmtTime(iso: string) {
   return new Date(iso).toLocaleString();
 }
 
-function thumbUrl(g: GenerationSummary): string | null {
-  const first = g.outputs[0];
-  return first ? api.generations.imageUrl(g.id, first) : null;
+interface MediaItem {
+  url: string;
+  mediaType: MediaType;
+  genId: string;
 }
 
-function allThumbUrls(): string[] {
+function thumbInfo(g: GenerationSummary): MediaItem | null {
+  const first = g.outputs[0];
+  if (!first) return null;
+  return {
+    url: api.generations.imageUrl(g.id, first),
+    mediaType: mediaTypeOf(first),
+    genId: g.id,
+  };
+}
+
+function allMediaItems(): MediaItem[] {
   return items.value
-    .map((g) => thumbUrl(g))
-    .filter((u): u is string => u !== null);
+    .map((g) => thumbInfo(g))
+    .filter((m): m is MediaItem => m !== null);
+}
+
+function imagePreviewList(): string[] {
+  return allMediaItems()
+    .filter((m) => m.mediaType === "image")
+    .map((m) => m.url);
 }
 
 function promptText(g: GenerationSummary): string {
-  const p = g.parameters["text"];
-  return typeof p === "string" ? p : "";
+  const params = g.parameters;
+  for (const key of ["text", "prompt", "positive_prompt"]) {
+    const v = params[key];
+    if (typeof v === "string" && v.length > 0) return v;
+  }
+  for (const v of Object.values(params)) {
+    if (typeof v === "string" && v.length > 0) return v;
+  }
+  return "";
 }
 </script>
 
@@ -132,15 +157,27 @@ function promptText(g: GenerationSummary): string {
     <el-table :data="items" v-loading="loading" stripe style="width: 100%">
       <el-table-column label="图" width="100">
         <template #default="{ row }">
-          <el-image
-            v-if="thumbUrl(row)"
-            :src="thumbUrl(row)!"
-            fit="cover"
-            style="width: 72px; height: 72px; border-radius: 6px"
-            :preview-src-list="allThumbUrls()"
-            preview-teleported
-            show-progress
-          />
+          <template v-if="thumbInfo(row)">
+            <video
+              v-if="thumbInfo(row)!.mediaType === 'video'"
+              :src="thumbInfo(row)!.url"
+              muted
+              autoplay
+              loop
+              playsinline
+              class="cc-thumb cc-thumb-video"
+              @click.stop="detail = row"
+            />
+            <el-image
+              v-else
+              :src="thumbInfo(row)!.url"
+              fit="cover"
+              class="cc-thumb"
+              :preview-src-list="imagePreviewList()"
+              preview-teleported
+              show-progress
+            />
+          </template>
           <div v-else class="cc-thumb-placeholder" />
         </template>
       </el-table-column>
@@ -237,6 +274,17 @@ function promptText(g: GenerationSummary): string {
   height: 72px;
   background: #e2e8f0;
   border-radius: 6px;
+}
+.cc-thumb {
+  width: 72px;
+  height: 72px;
+  border-radius: 6px;
+  display: block;
+  cursor: pointer;
+}
+.cc-thumb-video {
+  background: #000;
+  cursor: pointer;
 }
 .cc-prompt {
   display: -webkit-box;

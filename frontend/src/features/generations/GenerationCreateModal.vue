@@ -7,6 +7,7 @@ import { useNsfwFilter } from "@/composables/useNsfwFilter";
 import { api } from "@/services/api";
 import type { GenerationConfigSummary, GenerationField, GenerationStatus, GenerationSummary } from "@/types/api";
 import type { LoraEntry, LoraSummary } from "@/types/api";
+import { mediaTypeOf, type MediaType } from "./mediaType";
 
 const props = defineProps<{
   preset?: GenerationSummary | null;
@@ -29,8 +30,9 @@ const submitError = ref<string | null>(null);
 const activeGenId = ref<string | null>(null);
 const activeStatus = ref<GenerationStatus | null>(null);
 const activeError = ref<string | null>(null);
-const mainImageUrl = ref<string | null>(null);
-const history = ref<Array<{ id: string; imageUrl: string }>>([]);
+const mainMediaUrl = ref<string | null>(null);
+const mainMediaType = ref<MediaType>("image");
+const history = ref<Array<{ id: string; url: string; mediaType: MediaType }>>([]);
 let pollTimer: number | undefined;
 const step = ref(1);
 
@@ -347,7 +349,8 @@ async function submit() {
     activeGenId.value = gen.id;
     activeStatus.value = gen.status;
     activeError.value = null;
-    mainImageUrl.value = null;
+    mainMediaUrl.value = null;
+    mainMediaType.value = "image";
     emit("generated");  // 通知父级刷新列表;不 emit close,弹窗保持打开
     startPolling();
   } catch (err) {
@@ -378,10 +381,13 @@ async function pollOnce() {
     activeError.value = gen.error;
     if (gen.status === "success" && gen.outputs.length > 0) {
       const filename = gen.outputs[0];
-      mainImageUrl.value = api.generations.imageUrl(gen.id, filename);
+      const url = api.generations.imageUrl(gen.id, filename);
+      const mediaType = mediaTypeOf(filename);
+      mainMediaUrl.value = url;
+      mainMediaType.value = mediaType;
       // 入栈历史(去重 + 最新在左)
       if (!history.value.some((h) => h.id === gen.id)) {
-        history.value = [{ id: gen.id, imageUrl: mainImageUrl.value }, ...history.value];
+        history.value = [{ id: gen.id, url, mediaType }, ...history.value];
       }
       stopPolling();
     } else if (gen.status === "failed") {
@@ -411,7 +417,8 @@ async function abort() {
     activeGenId.value = null;
     activeStatus.value = null;
     activeError.value = null;
-    mainImageUrl.value = null;
+    mainMediaUrl.value = null;
+    mainMediaType.value = "image";
     history.value = [];
     emit("generated");
   } catch (err) {
@@ -421,8 +428,9 @@ async function abort() {
   }
 }
 
-function showThumbnail(url: string) {
-  mainImageUrl.value = url;
+function showMedia(item: { url: string; mediaType: MediaType }) {
+  mainMediaUrl.value = item.url;
+  mainMediaType.value = item.mediaType;
 }
 
 const autoTriggerPreview = computed(() => {
@@ -680,7 +688,17 @@ const autoTriggerPreview = computed(() => {
             <el-icon v-if="activeGenId && (activeStatus === 'queued' || activeStatus === 'running')" class="is-loading cc-image-loading">
               <Loading />
             </el-icon>
-            <img v-else-if="mainImageUrl" :src="mainImageUrl" alt="生成结果" class="cc-image-main-img" />
+            <img v-else-if="mainMediaUrl && mainMediaType === 'image'" :src="mainMediaUrl" alt="生成结果" class="cc-image-main-img" />
+            <video
+              v-else-if="mainMediaUrl && mainMediaType === 'video'"
+              :src="mainMediaUrl"
+              controls
+              autoplay
+              muted
+              loop
+              playsinline
+              class="cc-image-main-video"
+            />
             <div v-else-if="activeGenId && activeStatus === 'failed'" class="cc-image-error">
               <p>{{ activeError || '生成失败' }}</p>
             </div>
@@ -700,10 +718,19 @@ const autoTriggerPreview = computed(() => {
               v-for="(item, idx) in history"
               :key="item.id"
               class="cc-image-thumb"
-              :class="{ 'is-active': mainImageUrl === item.imageUrl }"
-              @click="showThumbnail(item.imageUrl)"
+              :class="{ 'is-active': mainMediaUrl === item.url }"
+              @click="showMedia(item)"
             >
-              <img :src="item.imageUrl" :alt="`结果 ${idx + 1}`" />
+              <img v-if="item.mediaType === 'image'" :src="item.url" :alt="`结果 ${idx + 1}`" />
+              <video
+                v-else
+                :src="item.url"
+                muted
+                autoplay
+                loop
+                playsinline
+                class="cc-image-thumb-video"
+              />
             </div>
           </div>
         </div>
@@ -895,6 +922,12 @@ const autoTriggerPreview = computed(() => {
   max-height: 100%;
   object-fit: contain;
 }
+.cc-image-main-video {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  display: block;
+}
 .cc-image-error {
   display: flex;
   flex-direction: column;
@@ -938,5 +971,12 @@ const autoTriggerPreview = computed(() => {
   height: 100%;
   object-fit: cover;
   display: block;
+}
+.cc-image-thumb-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  background: #000;
 }
 </style>
