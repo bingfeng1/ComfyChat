@@ -21,6 +21,9 @@ const DEFAULT_CHECKED_LABELS = new Set(["正面提示词", "负面提示词"]);
 function isDefaultChecked(f: GenerationField): boolean {
   if (DEFAULT_CHECKED_KEYS.has(f.key)) return true;
   if (DEFAULT_CHECKED_LABELS.has(f.label)) return true;
+  // 任何 seed 类型字段都默认勾上:用户在配置 modal 难以从乱码 label 辨认
+  // (例 MiniMax-H3 视频工作流的 noise_seed),漏勾后随机种不会参与生成。
+  if (f.type === "seed") return true;
   return false;
 }
 
@@ -38,8 +41,12 @@ onMounted(async () => {
     const existing = await api.workflows.generationConfig.get(props.workflowId);
     if (existing && existing.fields.length > 0) {
       const savedKeys = new Set(existing.fields.map((f) => f.key));
+      // 重发现时:已保存字段保持勾上,新发现字段中「seed 类等高优先字段」也默认勾上
+      // (避免用户在长长列表里漏勾关键字段)。
       removed.value = new Set(
-        d.fields.filter((f) => !savedKeys.has(f.key)).map((f) => f.key),
+        d.fields
+          .filter((f) => !savedKeys.has(f.key) && !isDefaultChecked(f))
+          .map((f) => f.key),
       );
       const isArrayByKey = new Map<string, boolean>();
       for (const ef of existing.fields) {
