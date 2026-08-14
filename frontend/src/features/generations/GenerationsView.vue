@@ -139,6 +139,7 @@ function promptText(g: GenerationSummary): string {
             style="width: 72px; height: 72px; border-radius: 6px"
             :preview-src-list="allThumbUrls()"
             preview-teleported
+            show-progress
           />
           <div v-else class="cc-thumb-placeholder" />
         </template>
