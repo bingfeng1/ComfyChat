@@ -3,12 +3,17 @@ import { ref, watch } from "vue";
 import Modal from "@/components/Modal.vue";
 import { api } from "@/services/api";
 import type { GenerationSummary } from "@/types/api";
+import { mediaTypeOf } from "./mediaType";
 
 const props = defineProps<{ generationId: string; title: string }>();
 const emit = defineEmits<{ close: [] }>();
 
 const gen = ref<GenerationSummary | null>(null);
 const loadError = ref<string | null>(null);
+
+function imageOutputs(): string[] {
+  return (gen.value?.outputs ?? []).filter((o) => mediaTypeOf(o) === "image");
+}
 
 watch(
   () => props.generationId,
@@ -28,17 +33,31 @@ watch(
 <template>
   <Modal :title="props.title" @close="emit('close')">
     <div v-if="gen" class="cc-detail">
-      <el-image
+      <template
         v-for="out in gen.outputs"
         :key="out"
-        :src="api.generations.imageUrl(gen.id, out)"
-        class="cc-preview"
-        fit="contain"
-        alt=""
-        preview-teleported
-        :preview-src-list="gen.outputs.map((o) => api.generations.imageUrl(gen!.id, o))"
-      />
-      <p v-if="gen.outputs.length === 0" class="cc-hint">无输出图片</p>
+      >
+        <video
+          v-if="mediaTypeOf(out) === 'video'"
+          :src="api.generations.imageUrl(gen.id, out)"
+          controls
+          autoplay
+          muted
+          loop
+          playsinline
+          class="cc-preview cc-preview-video"
+        />
+        <el-image
+          v-else
+          :src="api.generations.imageUrl(gen.id, out)"
+          class="cc-preview"
+          fit="contain"
+          alt=""
+          preview-teleported
+          :preview-src-list="imageOutputs().map((o) => api.generations.imageUrl(gen!.id, o))"
+        />
+      </template>
+      <p v-if="gen.outputs.length === 0" class="cc-hint">无输出</p>
       <dl class="cc-meta">
         <dt>状态</dt><dd>{{ gen.status }}</dd>
         <dt>工作流</dt><dd>{{ gen.workflow_name }}</dd>
@@ -66,6 +85,9 @@ watch(
   max-height: 55vh;
   object-fit: contain;
   border-radius: 6px;
+}
+.cc-preview-video {
+  background: #000;
 }
 .cc-hint {
   color: #64748b;
