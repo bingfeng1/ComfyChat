@@ -616,6 +616,73 @@ def test_workflow_to_api_template_resolves_links():
     assert api["19"]["inputs"]["images"] == ["17", 0]
 
 
+WIDGET_AND_LINK_BODY = {
+    "nodes": [
+        {
+            "id": 7,
+            "type": "PrimitiveFloat",
+            "inputs": [
+                {"name": "value", "type": "FLOAT", "widget": {"name": "value"}, "link": None},
+            ],
+            "widgets_values": [5],
+        },
+        {
+            "id": 8,
+            "type": "ComfyMathExpression",
+            "inputs": [
+                {"name": "values.a", "type": "FLOAT", "link": 1},
+                {"name": "expression", "type": "STRING", "widget": {"name": "expression"}, "link": None},
+            ],
+            "widgets_values": ["max(5, round(a * 24))"],
+        },
+        {
+            "id": 9,
+            "type": "MiniMaxH3ImageToVideo",
+            "inputs": [
+                {"name": "prompt", "type": "STRING", "widget": {"name": "prompt"}, "link": None},
+                {"name": "width", "type": "INT", "widget": {"name": "width"}, "link": 2},
+                {"name": "height", "type": "INT", "widget": {"name": "height"}, "link": 3},
+                {"name": "length", "type": "INT", "widget": {"name": "length"}, "link": 4},
+            ],
+            "widgets_values": ["a cat", 1344, 768, 73],
+        },
+    ],
+    "links": [
+        [1, 7, 0, 8, 0, "FLOAT"],
+        [2, 99, 0, 9, 1, "INT"],
+        [3, 99, 1, 9, 2, "INT"],
+        [4, 8, 1, 9, 3, "INT"],
+    ],
+}
+
+
+def test_workflow_to_api_template_preserves_links_over_widget_values():
+    """输入同时带 widget 和 link 时,line 引用胜出(widget 默认值 73 不应覆盖 length 链接)。"""
+    api = workflow_to_api_template(WIDGET_AND_LINK_BODY)
+    assert api["9"]["inputs"]["prompt"] == "a cat"
+    assert api["9"]["inputs"]["width"] == ["99", 0]
+    assert api["9"]["inputs"]["height"] == ["99", 1]
+    assert api["9"]["inputs"]["length"] == ["8", 1]
+    assert api["9"]["inputs"]["length"] != 73
+
+
+def test_discover_fields_skips_inputs_with_link_even_if_widget_marked():
+    """width/height/length 同时带 widget 和 link,不应作为可配置字段暴露。"""
+    fields = discover_fields(WIDGET_AND_LINK_BODY)
+    keys = {f["key"] for f in fields}
+    assert "width" not in keys
+    assert "height" not in keys
+    assert "length" not in keys
+    assert "prompt" in keys
+    assert "value" in keys
+    assert "expression" in keys
+    prompt = next(f for f in fields if f["key"] == "prompt")
+    assert prompt["default"] == "a cat"
+    value = next(f for f in fields if f["key"] == "value")
+    assert value["default"] == 5
+    assert value["type"] == "number"
+
+
 class FakeCancellableComfy(FakeComfy):
     def __init__(self):
         super().__init__()
