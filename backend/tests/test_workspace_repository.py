@@ -1,5 +1,9 @@
+import json
+
 import pytest
 
+from app.models.generation import Generation
+from app.repositories.generation import GenerationRepository
 from app.repositories.workspace import WorkspaceRepository
 
 
@@ -155,3 +159,111 @@ def test_generation_ids_in_workspace(session):
     repo.assign_workspaces("gc", [w.id])
     ids = repo.generation_ids_in_workspace(w.id)
     assert sorted(ids) == ["ga", "gb", "gc"]
+
+
+def _gen_with_outputs(session, outputs: list[str], status: str = "success") -> Generation:
+    """Helper: create a generation row with given outputs list."""
+    gen = GenerationRepository(session).create(
+        "wf1", "wf1", {"text": "x"}, status, "p1"
+    )
+    gen.outputs_json = json.dumps(outputs, ensure_ascii=False)
+    session.commit()
+    session.refresh(gen)
+    return gen
+
+
+def test_generation_count_zero_when_empty(session):
+    repo = _repo(session)
+    ws = repo.create("empty")
+    assert repo.generation_count(ws.id) == 0
+
+
+def test_generation_count_after_assign(session):
+    repo = _repo(session)
+    ws = repo.create("bin")
+    repo.assign_workspaces("g1", [ws.id])
+    repo.assign_workspaces("g2", [ws.id])
+    assert repo.generation_count(ws.id) == 2
+
+
+def test_bulk_generation_counts(session):
+    repo = _repo(session)
+    w1 = repo.create("w1")
+    w2 = repo.create("w2")
+    repo.assign_workspaces("g1", [w1.id, w2.id])  # 双关联,w1 +1, w2 +1
+    repo.assign_workspaces("g2", [w1.id])  # w1 再 +1
+    counts = repo.bulk_generation_counts([w1.id, w2.id])
+    assert counts == {w1.id: 2, w2.id: 1}
+
+
+def test_preview_for_workspace_empty(session):
+    repo = _repo(session)
+    ws = repo.create("empty")
+    assert repo.preview_for_workspace(ws.id) == []
+
+
+def test_preview_for_workspace_skips_empty_outputs(session):
+    repo = _repo(session)
+    ws = repo.create("ws")
+    gen = _gen_with_outputs(session, [])  # 空 outputs
+    repo.assign_workspaces(gen.id, [ws.id])
+    assert repo.preview_for_workspace(ws.id) == []
+
+
+def test_preview_for_workspace_returns_first_output_with_media_type(session):
+    repo = _repo(session)
+    ws = repo.create("ws")
+    gen = _gen_with_outputs(session, ["out.png", "extra.png"])
+    repo.assign_workspaces(gen.id, [ws.id])
+    preview = repo.preview_for_workspace(ws.id)
+    assert len(preview) == 1
+    assert preview[0]["generation_id"] == gen.id
+    assert preview[0]["filename"] == "out.png"
+    assert preview[0]["media_type"] == "image"
+
+
+def test_preview_distinguishes_video_extensions(session):
+    repo = _repo(session)
+    ws = repo.create("ws")
+    g1 = _gen_with_outputs(session, ["a.mp4"])
+    g2 = _gen_with_outputs(session, ["b.webm"])
+    g3 = _gen_with_outputs(session, ["c.png"])
+    for g in (g1, g2, g3):
+        repo.assign_workspaces(g.id, [ws.id])
+    preview = repo.preview_for_workspace(ws.id)
+    media_by_gen = {p["generation_id"]: p["media_type"] for p in preview}
+    assert media_by_gen[g1.id] == "video"
+    assert media_by_gen[g2.id] == "video"
+    assert media_by_gen[g3.id] == "image"
+
+
+def test_preview_caps_at_limit(session):
+    repo = _repo(session)
+    ws = repo.create("ws")
+    for i in range(8):
+        g = _gen_with_outputs(session, [f"img_{i}.png"])
+        repo.assign_workspaces(g.id, [ws.id])
+    assert len(repo.preview_for_workspace(ws.id, limit=4)) == 4
+    assert len(repo.preview_for_workspace(ws.id, limit=2)) == 2
+    assert len(repo.preview_for_workspace(ws.id, limit=0)) == 0
+    assert len(repo.preview_for_workspace(ws.id, limit=999)) == 8
+
+
+def test_preview_sorted_by_created_at_desc(session):
+    repo = _repo(session)
+    ws = repo.create("ws")
+    g1 = _gen_with_outputs(session, ["old.png"])
+    # 手动改 created_at 让排序生效
+    g1.created_at = "2020-01-01T00:00:00+00:00"
+    session.commit()
+    g2 = _gen_with_outputs(session, ["mid.png"])
+    g2.created_at = "2022-01-01T00:00:00+00:00"
+    session.commit()
+    g3 = _gen_with_outputs(session, ["new.png"])
+    g3.created_at = "2024-01-01T00:00:00+00:00"
+    session.commit()
+    for g in (g1, g2, g3):
+        repo.assign_workspaces(g.id, [ws.id])
+    preview = repo.preview_for_workspace(ws.id, limit=3)
+    filenames = [p["filename"] for p in preview]
+    assert filenames == ["new.png", "mid.png", "old.png"]

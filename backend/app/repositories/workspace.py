@@ -1,15 +1,20 @@
 from __future__ import annotations
 
+import json
 from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Iterable, Sequence
 
 from sqlalchemy import delete as sa_delete
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.models.generation import Generation
 from app.models.workspace import GenerationWorkspaceLink, Workspace
+
+
+VIDEO_EXT = (".mp4", ".webm", ".mov", ".m4v", ".avi", ".mkv")
 
 
 def _utcnow() -> str:
@@ -122,3 +127,59 @@ class WorkspaceRepository:
             GenerationWorkspaceLink.workspace_id == workspace_id
         )
         return list(self.session.scalars(stmt).all())
+
+    def generation_count(self, workspace_id: str) -> int:
+        stmt = select(func.count()).select_from(GenerationWorkspaceLink).where(
+            GenerationWorkspaceLink.workspace_id == workspace_id
+        )
+        return int(self.session.scalar(stmt) or 0)
+
+    def bulk_generation_counts(self, workspace_ids: Iterable[str]) -> dict[str, int]:
+        ids = list(workspace_ids)
+        if not ids:
+            return {}
+        stmt = select(
+            GenerationWorkspaceLink.workspace_id,
+            func.count(GenerationWorkspaceLink.generation_id),
+        ).where(
+            GenerationWorkspaceLink.workspace_id.in_(ids)
+        ).group_by(GenerationWorkspaceLink.workspace_id)
+        return {ws_id: int(c) for ws_id, c in self.session.execute(stmt).all()}
+
+    @staticmethod
+    def _media_type(filename: str) -> str:
+        lower = filename.lower()
+        return "video" if lower.endswith(VIDEO_EXT) else "image"
+
+    def preview_for_workspace(self, workspace_id: str, limit: int = 4) -> list[dict]:
+        """返回该工作区最近 N 个 generation 的首个 output 文件名。
+
+        顺序: 按 generation.created_at desc 排序。
+        每个 output 由 (generation_id, filename, media_type) 描述;空 outputs 跳过。
+        """
+        if limit <= 0:
+            return []
+        gen_stmt = (
+            select(Generation)
+            .join(GenerationWorkspaceLink, GenerationWorkspaceLink.generation_id == Generation.id)
+            .where(GenerationWorkspaceLink.workspace_id == workspace_id)
+            .order_by(Generation.created_at.desc())
+            .limit(limit * 3)  # 取多些再过滤空 outputs
+        )
+        results: list[dict] = []
+        for gen in self.session.scalars(gen_stmt).all():
+            try:
+                outputs = json.loads(gen.outputs_json or "[]")
+            except (TypeError, ValueError):
+                outputs = []
+            if not outputs:
+                continue
+            first = outputs[0]
+            results.append({
+                "generation_id": gen.id,
+                "filename": str(first),
+                "media_type": self._media_type(str(first)),
+            })
+            if len(results) >= limit:
+                break
+        return results
