@@ -49,7 +49,8 @@ const createWsName = ref("");
 const createWsError = ref<string | null>(null);
 const createWsSubmitting = ref(false);
 
-const showCreateWsForGen = ref<GenerationSummary | null>(null);
+const popoverRow = ref<GenerationSummary | null>(null);
+
 
 async function doDelete() {
   if (!confirmDelete.value) return;
@@ -202,16 +203,24 @@ async function assignWorkspaceFromChip(g: GenerationSummary, wsId: string) {
 }
 
 const addableWorkspaces = computed(() => {
-  const gen = showCreateWsForGen.value;
+  const gen = popoverRow.value;
   if (!gen) return workspaces.value;
   return workspaces.value.filter((w) => !gen.workspace_ids.includes(w.id));
 });
 
+function openWsPicker(row: GenerationSummary) {
+  popoverRow.value = row;
+}
+
+function closeWsPicker() {
+  popoverRow.value = null;
+}
+
 function pickWorkspaceForGen(wsId: string) {
-  const gen = showCreateWsForGen.value;
+  const gen = popoverRow.value;
   if (!gen) return;
   assignWorkspaceFromChip(gen, wsId).then(() => {
-    if (showCreateWsForGen.value?.id === gen.id) showCreateWsForGen.value = null;
+    closeWsPicker();
   });
 }
 
@@ -347,17 +356,18 @@ const filteredItems = computed(() => {
               {{ nameOf(wsId) }}
             </el-tag>
             <el-popover
-              v-model:visible="showCreateWsForGen === row"
+              :visible="popoverRow?.id === row.id"
               placement="bottom-start"
               :width="240"
-              trigger="click"
+              trigger="manual"
+              @update:visible="(v: boolean) => { if (!v) closeWsPicker(); }"
             >
               <template #reference>
                 <el-button
                   link
                   type="primary"
                   size="small"
-                  @click="showCreateWsForGen = row"
+                  @click="openWsPicker(row)"
                 >
                   <el-icon><Plus /></el-icon>
                   工作区
