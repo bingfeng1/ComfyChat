@@ -105,6 +105,7 @@ export interface GenerationConfigSummary {
   workflow_id: string;
   workflow_name: string;
   fields: GenerationField[];
+  unchecked_keys?: string[];
   api_template?: Record<string, unknown> | null;
   main_model?: string | null;
 }
@@ -116,6 +117,7 @@ export interface GenerationConfigList {
 export interface GenerationConfigPayload {
   api_template: Record<string, unknown>;
   fields: GenerationField[];
+  unchecked_keys?: string[];
 }
 
 export interface LoraSummary {

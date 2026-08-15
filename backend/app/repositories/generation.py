@@ -210,18 +210,22 @@ class WorkflowGenerationConfigRepository:
         workflow_id: str,
         api_template: dict,
         fields: list[dict],
+        unchecked_keys: Optional[list[str]] = None,
     ) -> WorkflowGenerationConfig:
         cfg = self.get_by_workflow(workflow_id)
+        unchecked_json = json.dumps(unchecked_keys or [], ensure_ascii=False)
         if cfg is None:
             cfg = WorkflowGenerationConfig(
                 workflow_id=workflow_id,
                 api_template=json.dumps(api_template, ensure_ascii=False),
                 fields_json=json.dumps(fields, ensure_ascii=False),
+                unchecked_keys_json=unchecked_json,
             )
             self.session.add(cfg)
         else:
             cfg.api_template = json.dumps(api_template, ensure_ascii=False)
             cfg.fields_json = json.dumps(fields, ensure_ascii=False)
+            cfg.unchecked_keys_json = unchecked_json
             cfg.updated_at = _utcnow()
         self.session.commit()
         self.session.refresh(cfg)

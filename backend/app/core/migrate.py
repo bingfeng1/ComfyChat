@@ -27,6 +27,14 @@ def migrate(engine: Engine) -> None:
         default="NULL",
         nullable=True,
     )
+    _ensure_column(
+        engine,
+        "workflow_generation_configs",
+        "unchecked_keys_json",
+        col_type="TEXT",
+        default="NULL",
+        nullable=True,
+    )
 
 
 def _ensure_column(

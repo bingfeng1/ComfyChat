@@ -579,6 +579,87 @@ def test_discover_fields_labels_positive_negative():
     assert texts["7"] == "正面提示词"
     assert texts["8"] == "负面提示词"
 
+
+# KSamplerAdvanced 连接 CLIPTextEncode → 应标「正面提示词」/「负面提示词」
+KSAMPLER_ADVANCED_BODY = {
+    "nodes": [
+        {
+            "id": 7, "type": "CLIPTextEncode",
+            "inputs": [{"name": "text", "type": "STRING", "widget": {"name": "text"}}],
+            "widgets_values": ["good photo"],
+        },
+        {
+            "id": 8, "type": "CLIPTextEncode",
+            "inputs": [{"name": "text", "type": "STRING", "widget": {"name": "text"}}],
+            "widgets_values": ["bad quality"],
+        },
+        {
+            "id": 16, "type": "KSamplerAdvanced",
+            "inputs": [
+                {"name": "positive", "type": "CONDITIONING", "link": 11},
+                {"name": "negative", "type": "CONDITIONING", "link": 12},
+                {"name": "seed", "type": "INT", "widget": {"name": "seed"}},
+            ],
+            "widgets_values": [42],
+        },
+    ],
+    "links": [
+        [11, 7, 0, 16, 1, "CONDITIONING"],
+        [12, 8, 0, 16, 2, "CONDITIONING"],
+    ],
+}
+
+
+def test_discover_fields_labels_ksampleraadvanced():
+    fields = discover_fields(KSAMPLER_ADVANCED_BODY)
+    texts = {f["node_id"]: f["label"] for f in fields if f["input_name"] == "text"}
+    assert texts["7"] == "正面提示词"
+    assert texts["8"] == "负面提示词"
+
+
+# 无 sampler 节点但恰好 1 个 CLIPTextEncode → 标为正面提示词（upscale 流程常见）
+SIMPLE_UPSCALE_BODY = {
+    "nodes": [
+        {
+            "id": 1, "type": "CLIPTextEncode",
+            "inputs": [{"name": "text", "type": "STRING", "widget": {"name": "text"}}],
+            "widgets_values": ["a cat in garden"],
+        },
+        {
+            "id": 2, "type": "LoadImage",
+            "inputs": [{"name": "image", "type": "IMAGE", "widget": {"name": "image"}}],
+            "widgets_values": ["input.png"],
+        },
+    ],
+    "links": [],
+}
+
+
+def test_discover_fields_labels_single_clip_fallback():
+    fields = discover_fields(SIMPLE_UPSCALE_BODY)
+    texts = {f["node_id"]: f["label"] for f in fields if f["input_name"] == "text"}
+    assert texts["1"] == "正面提示词"
+
+
+# 无 sampler 且 0 个 CLIPTextEncode → 无标签
+PURE_UPSCALE_BODY = {
+    "nodes": [
+        {
+            "id": 1, "type": "LoadImage",
+            "inputs": [{"name": "image", "type": "IMAGE", "widget": {"name": "image"}}],
+            "widgets_values": ["input.png"],
+        },
+    ],
+    "links": [],
+}
+
+
+def test_discover_fields_no_labels_without_clip():
+    fields = discover_fields(PURE_UPSCALE_BODY)
+    texts = {f["node_id"]: f["label"] for f in fields if f["input_name"] == "text"}
+    assert len(texts) == 0
+
+
 LINKED_BODY = {
     "nodes": [
         {

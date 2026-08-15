@@ -255,15 +255,26 @@ def _field_meta(object_info: dict | None, node_type: str, input_name: str) -> di
 def _conditioning_labels(body_json: dict) -> dict[str, str]:
     """解析连线,返回 {CLIPTextEncode 节点 id: "正面提示词"|"负面提示词"}。
 
-    判定方式: 找 KSampler 的 positive/negative 输入各连到哪个源节点。
-    用 input 的 link id 反查 links 数组的 [id, from_node, ...]。
+    判定方式: 扫描所有 sampler 类节点（KSampler / KSamplerAdvanced / SamplerCustom 等）
+    的 positive/negative 输入，用 link id 反查 links 数组的 [id, from_node, ...]。
+    若无 sampler 类节点但有恰好 1 个 CLIPTextEncode，默认标为正面提示词（upscale 流程
+    常见形态：不带 KSampler 但挂了一个 CLIPTextEncode 用于引导）。
     """
     labels: dict[str, str] = {}
     links = body_json.get("links", [])
     links_by_id = {l[0]: l for l in links}
+    # sampler 类节点列表: 有 positive/negative 输入且执行采样的节点
+    sampler_types = {
+        "KSampler",
+        "KSamplerAdvanced",
+        "SamplerCustom",
+        "KSampler (Effcient)",
+    }
+    has_sampler = False
     for node in body_json.get("nodes", []):
-        if node.get("type") != "KSampler":
+        if node.get("type") not in sampler_types:
             continue
+        has_sampler = True
         for inp in node.get("inputs", []):
             role = inp.get("name")
             if role not in ("positive", "negative"):
@@ -273,6 +284,15 @@ def _conditioning_labels(body_json: dict) -> dict[str, str]:
                 continue
             from_node = str(link[1])
             labels[from_node] = "正面提示词" if role == "positive" else "负面提示词"
+    # Fallback: 无 sampler 节点但恰好有 1 个 CLIPTextEncode
+    if not has_sampler:
+        clip_nodes = [
+            str(n["id"])
+            for n in body_json.get("nodes", [])
+            if n.get("type") == "CLIPTextEncode"
+        ]
+        if len(clip_nodes) == 1:
+            labels[clip_nodes[0]] = "正面提示词"
     return labels
 
 

@@ -252,3 +252,39 @@ def test_discover_with_two_lora_nodes_keeps_two_fields(tmp_path):
     for f in lora_fields:
         companion = next((x for x in fields if x["node_id"] == f["node_id"] and x["input_name"] == "strength_model"), None)
         assert companion is None
+
+
+def test_save_config_with_unchecked_keys(tmp_path):
+    """保存时携带 unchecked_keys，GET 回包应包含它。"""
+    client = _client(tmp_path)
+    wid = _import(client)
+    body = {
+        "api_template": {"3": {"class_type": "KSampler", "inputs": {"seed": 0}}},
+        "fields": [
+            {"key": "seed", "label": "随机数", "type": "seed", "node_id": "3", "input_name": "seed", "default": 0, "required": True},
+        ],
+        "unchecked_keys": ["width", "height"],
+    }
+    r = client.put(f"/workflows/{wid}/generation-config", json=body)
+    assert r.status_code == 200
+    data = r.json()
+    assert data["unchecked_keys"] == ["width", "height"]
+
+    r2 = client.get(f"/workflows/{wid}/generation-config")
+    assert r2.json()["unchecked_keys"] == ["width", "height"]
+
+
+def test_list_configs_include_unchecked_keys(tmp_path):
+    """list_generation_configs 返回的条目应包含 unchecked_keys。"""
+    client = _client(tmp_path)
+    wid = _import(client)
+    body = {
+        "api_template": {"3": {}},
+        "fields": [{"key": "seed", "label": "随机数", "type": "seed", "node_id": "3", "input_name": "seed", "default": 0, "required": True}],
+        "unchecked_keys": ["width"],
+    }
+    client.put(f"/workflows/{wid}/generation-config", json=body)
+    r = client.get("/workflows/generation-configs")
+    assert r.status_code == 200
+    item = r.json()["items"][0]
+    assert item["unchecked_keys"] == ["width"]

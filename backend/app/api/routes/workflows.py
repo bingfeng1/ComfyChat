@@ -68,10 +68,12 @@ def list_generation_configs(
     items = []
     for cfg, name in config_repo.list_configured():
         api_template = json.loads(cfg.api_template)
+        unchecked = json.loads(cfg.unchecked_keys_json) if cfg.unchecked_keys_json else []
         items.append(GenerationConfigSummaryOut(
             workflow_id=cfg.workflow_id,
             workflow_name=name,
             fields=[f for f in json.loads(cfg.fields_json)],
+            unchecked_keys=unchecked,
             api_template=api_template,
             main_model=main_model_from_template(api_template),
         ))
@@ -87,7 +89,12 @@ def save_generation_config(
 ) -> GenerationConfigOut:
     if repo.get(workflow_id) is None:
         raise HTTPException(status_code=404, detail="Workflow not found")
-    cfg = config_repo.upsert(workflow_id, payload.api_template, [f.model_dump() for f in payload.fields])
+    cfg = config_repo.upsert(
+        workflow_id,
+        payload.api_template,
+        [f.model_dump() for f in payload.fields],
+        payload.unchecked_keys,
+    )
     return GenerationConfigOut.from_model(cfg)
 
 
