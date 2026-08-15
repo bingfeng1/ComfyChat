@@ -9,6 +9,7 @@ export function useGenerations() {
   const error = ref<string | null>(null);
   const statusFilter = ref<GenerationStatus | "">("");
   const workflowFilter = ref<string>("");
+  const workspaceFilter = ref<string>("");
   const page = ref(1);
   const pageSize = ref(15);
   const total = ref(0);
@@ -32,6 +33,7 @@ export function useGenerations() {
       const data = await api.generations.list({
         status: statusFilter.value || undefined,
         workflow_id: workflowFilter.value || undefined,
+        workspace_id: workspaceFilter.value || undefined,
         page: page.value,
         page_size: pageSize.value,
         exclude_nsfw: !nsfwEnabled.value,
@@ -50,6 +52,7 @@ export function useGenerations() {
       const data = await api.generations.list({
         status: statusFilter.value || undefined,
         workflow_id: workflowFilter.value || undefined,
+        workspace_id: workspaceFilter.value || undefined,
         page: page.value,
         page_size: pageSize.value,
         exclude_nsfw: !nsfwEnabled.value,
@@ -64,6 +67,7 @@ export function useGenerations() {
   async function create(payload: {
     workflow_id: string;
     parameters: Record<string, unknown>;
+    workspace_ids?: string[];
   }) {
     const res = await api.generations.create(payload);
     if (res.status !== 201) {
@@ -79,6 +83,21 @@ export function useGenerations() {
     const res = await api.generations.remove(id);
     if (res.status !== 204) throw new Error(`删除失败：${res.status}`);
     await refresh();
+  }
+
+  async function setWorkspaces(id: string, workspaceIds: string[]) {
+    const res = await api.generations.setWorkspaces(id, workspaceIds);
+    if (!res.ok) {
+      const data = await res.json().catch(() => null);
+      throw new Error(data?.detail ?? `更新工作区失败:${res.status}`);
+    }
+    await refresh(true);
+  }
+
+  async function removeWorkspace(id: string, workspaceId: string) {
+    const res = await api.generations.removeWorkspace(id, workspaceId);
+    if (res.status !== 204) throw new Error(`解除失败：${res.status}`);
+    await refresh(true);
   }
 
   function setPage(n: number) {
@@ -98,6 +117,11 @@ export function useGenerations() {
   });
 
   watch(workflowFilter, () => {
+    page.value = 1;
+    refresh();
+  });
+
+  watch(workspaceFilter, () => {
     page.value = 1;
     refresh();
   });
@@ -122,6 +146,7 @@ export function useGenerations() {
     error,
     statusFilter,
     workflowFilter,
+    workspaceFilter,
     workflows,
     page,
     pageSize,
@@ -129,6 +154,8 @@ export function useGenerations() {
     refresh,
     create,
     remove,
+    setWorkspaces,
+    removeWorkspace,
     setPage,
     setPageSize,
   };
