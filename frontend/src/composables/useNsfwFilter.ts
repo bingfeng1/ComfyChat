@@ -1,22 +1,13 @@
-import { ref } from "vue";
+import { storeToRefs } from "pinia";
 
-const STORAGE_KEY = "cc_nsfw_enabled";
-
-const enabled = ref(localStorage.getItem(STORAGE_KEY) !== "false");
+import { useNsfwStore } from "@/stores/nsfw";
 
 export function useNsfwFilter() {
-  function setEnabled(value: boolean) {
-    enabled.value = value;
-    localStorage.setItem(STORAGE_KEY, String(value));
-  }
-
-  function toggle() {
-    setEnabled(!enabled.value);
-  }
-
+  const store = useNsfwStore();
+  const { enabled } = storeToRefs(store);
   return {
     enabled,
-    setEnabled,
-    toggle,
+    setEnabled: store.setEnabled,
+    toggle: store.toggle,
   };
 }
