@@ -14,6 +14,7 @@ import { mediaTypeOf, type MediaType } from "./mediaType";
 const props = defineProps<{
   preset?: GenerationSummary | null;
   preselectWorkflowId?: string;
+  preselectWorkspaceId?: string;
   showGoto?: boolean;
 }>();
 const emit = defineEmits<{ close: []; generated: []; goto: [] }>();
@@ -211,6 +212,10 @@ onMounted(async () => {
           f.is_array = true;
         }
       }
+    }
+    // 若传入了 preselectWorkspaceId, 预选该 workspace
+    if (props.preselectWorkspaceId) {
+      selectedWorkspaceIds.value = [props.preselectWorkspaceId];
     }
     if (configs.value.length > 0) {
       if (
