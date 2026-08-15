@@ -1,22 +1,10 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useRoute } from "vue-router";
-import { Folder, MagicStick, Picture } from "@element-plus/icons-vue";
+import { getNavItems, type NavItem } from "@/app/router";
 
 const route = useRoute();
-
-interface NavItem {
-  to: string;
-  label: string;
-  icon: typeof Folder;
-  match: string;
-}
-
-const items: NavItem[] = [
-  { to: "/workflows", label: "工作流", icon: Folder, match: "/workflows" },
-  { to: "/generations", label: "生成", icon: Picture, match: "/generations" },
-  { to: "/loras", label: "LoRA", icon: MagicStick, match: "/loras" },
-];
+const items: NavItem[] = getNavItems();
 
 const active = computed(() => {
   for (const item of items) {
