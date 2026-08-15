@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useRoute } from "vue-router";
-import { getNavItems, type NavItem } from "@/app/router";
+import { getNavItems, type NavItem } from "@/router";
 
 const route = useRoute();
 const items: NavItem[] = getNavItems();

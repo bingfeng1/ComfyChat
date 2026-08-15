@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { storeToRefs } from "pinia";
 import { CircleClose, Loading, Plus } from "@element-plus/icons-vue";
 import LoraArrayField from "@/components/LoraArrayField.vue";
 import Modal from "@/components/Modal.vue";
-import { useNsfwFilter } from "@/composables/useNsfwFilter";
+import { useNsfwStore } from "@/stores/nsfw";
 import { useWorkspaces } from "@/features/workspaces/useWorkspaces";
 import { api } from "@/services/api";
 import type { GenerationConfigSummary, GenerationField, GenerationStatus, GenerationSummary } from "@/types/api";
@@ -21,7 +22,7 @@ const loading = ref(true);
 const fetchError = ref<string | null>(null);
 const configs = ref<GenerationConfigSummary[]>([]);
 const loras = ref<LoraSummary[]>([]);
-const { enabled: nsfwEnabled } = useNsfwFilter();
+const { enabled: nsfwEnabled } = storeToRefs(useNsfwStore());
 const { items: workspaces, create: createWorkspace } = useWorkspaces();
 const workflowId = ref("");
 const values = ref<Record<string, string | number | LoraEntry[]>>({});

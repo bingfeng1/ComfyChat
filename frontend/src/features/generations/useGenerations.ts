@@ -1,6 +1,7 @@
 import { onMounted, onUnmounted, ref, watch } from "vue";
+import { storeToRefs } from "pinia";
 import { api } from "@/services/api";
-import { useNsfwFilter } from "@/composables/useNsfwFilter";
+import { useNsfwStore } from "@/stores/nsfw";
 import type { GenerationStatus, GenerationSummary, WorkflowSummary } from "@/types/api";
 
 export function useGenerations() {
@@ -14,7 +15,7 @@ export function useGenerations() {
   const pageSize = ref(15);
   const total = ref(0);
   const workflows = ref<WorkflowSummary[]>([]);
-  const { enabled: nsfwEnabled } = useNsfwFilter();
+  const { enabled: nsfwEnabled } = storeToRefs(useNsfwStore());
   let timer: number | undefined;
 
   async function loadWorkflows() {
