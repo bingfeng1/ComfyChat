@@ -363,6 +363,7 @@ onMounted(load);
   grid-template-columns: 1fr 1fr;
   gap: 2px;
   background: #f1f5f9;
+  aspect-ratio: 1 / 1;
   min-height: 120px;
   position: relative;
 }
