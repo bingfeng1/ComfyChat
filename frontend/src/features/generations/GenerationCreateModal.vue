@@ -213,10 +213,6 @@ onMounted(async () => {
         }
       }
     }
-    // 若传入了 preselectWorkspaceId, 预选该 workspace
-    if (props.preselectWorkspaceId) {
-      selectedWorkspaceIds.value = [props.preselectWorkspaceId];
-    }
     if (configs.value.length > 0) {
       if (
         props.preselectWorkflowId &&
@@ -244,9 +240,13 @@ function selectWorkflow(id: string) {
   workflowId.value = id;
   values.value = {};
   randomFlags.value = {};
-  selectedWorkspaceIds.value = props.preset && props.preset.workflow_id === id
-    ? [...props.preset.workspace_ids]
-    : [];
+  if (props.preset && props.preset.workflow_id === id) {
+    selectedWorkspaceIds.value = [...props.preset.workspace_ids];
+  } else if (props.preselectWorkspaceId) {
+    selectedWorkspaceIds.value = [props.preselectWorkspaceId];
+  } else {
+    selectedWorkspaceIds.value = [];
+  }
   if (props.preset && props.preset.workflow_id === id) {
     const p = props.preset.parameters;
     for (const f of fields.value) {
