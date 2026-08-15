@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
-import { CircleClose, Loading } from "@element-plus/icons-vue";
+import { CircleClose, Loading, Plus } from "@element-plus/icons-vue";
 import LoraArrayField from "@/components/LoraArrayField.vue";
 import Modal from "@/components/Modal.vue";
 import { useNsfwFilter } from "@/composables/useNsfwFilter";
+import { useWorkspaces } from "@/features/workspaces/useWorkspaces";
 import { api } from "@/services/api";
 import type { GenerationConfigSummary, GenerationField, GenerationStatus, GenerationSummary } from "@/types/api";
 import type { LoraEntry, LoraSummary } from "@/types/api";
@@ -21,10 +22,12 @@ const fetchError = ref<string | null>(null);
 const configs = ref<GenerationConfigSummary[]>([]);
 const loras = ref<LoraSummary[]>([]);
 const { enabled: nsfwEnabled } = useNsfwFilter();
+const { items: workspaces, create: createWorkspace } = useWorkspaces();
 const workflowId = ref("");
 const values = ref<Record<string, string | number | LoraEntry[]>>({});
 const randomFlags = ref<Record<string, boolean>>({});
 const autoAddTrigger = ref(true);
+const selectedWorkspaceIds = ref<string[]>([]);
 const submitting = ref(false);
 const submitError = ref<string | null>(null);
 const activeGenId = ref<string | null>(null);
@@ -35,6 +38,39 @@ const mainMediaType = ref<MediaType>("image");
 const history = ref<Array<{ id: string; url: string; mediaType: MediaType }>>([]);
 let pollTimer: number | undefined;
 const step = ref(1);
+
+const showCreateWs = ref(false);
+const createWsName = ref("");
+const createWsError = ref<string | null>(null);
+const createWsSubmitting = ref(false);
+
+function openCreateWs() {
+  showCreateWs.value = true;
+  createWsName.value = "";
+  createWsError.value = null;
+  createWsSubmitting.value = false;
+}
+
+async function submitCreateWs() {
+  const name = createWsName.value.trim();
+  if (!name) {
+    createWsError.value = "名称不能为空";
+    return;
+  }
+  createWsSubmitting.value = true;
+  createWsError.value = null;
+  try {
+    const ws = await createWorkspace(name);
+    if (!selectedWorkspaceIds.value.includes(ws.id)) {
+      selectedWorkspaceIds.value = [...selectedWorkspaceIds.value, ws.id];
+    }
+    showCreateWs.value = false;
+  } catch (err) {
+    createWsError.value = err instanceof Error ? err.message : String(err);
+  } finally {
+    createWsSubmitting.value = false;
+  }
+}
 
 const currentConfig = computed(
   () => configs.value.find((c) => c.workflow_id === workflowId.value) ?? null,
@@ -202,6 +238,9 @@ function selectWorkflow(id: string) {
   workflowId.value = id;
   values.value = {};
   randomFlags.value = {};
+  selectedWorkspaceIds.value = props.preset && props.preset.workflow_id === id
+    ? [...props.preset.workspace_ids]
+    : [];
   if (props.preset && props.preset.workflow_id === id) {
     const p = props.preset.parameters;
     for (const f of fields.value) {
@@ -340,7 +379,11 @@ async function submit() {
       }
     }
     parameters["auto_add_trigger"] = autoAddTrigger.value;
-    const res = await api.generations.create({ workflow_id: workflowId.value, parameters });
+    const res = await api.generations.create({
+      workflow_id: workflowId.value,
+      parameters,
+      workspace_ids: [...selectedWorkspaceIds.value],
+    });
     if (res.status !== 201) {
       const data = await res.json().catch(() => null);
       throw new Error(data?.detail ?? `创建失败:${res.status}`);
@@ -660,6 +703,26 @@ const autoTriggerPreview = computed(() => {
             </div>
           </template>
         </el-form-item>
+        <el-form-item label="工作区">
+          <div class="cc-ws-picker">
+            <el-select
+              v-model="selectedWorkspaceIds"
+              multiple
+              collapse-tags
+              collapse-tags-tooltip
+              placeholder="选择工作区(可多选)"
+              style="width: 100%"
+            >
+              <el-option
+                v-for="w in workspaces"
+                :key="w.id"
+                :value="w.id"
+                :label="w.name"
+              />
+            </el-select>
+            <el-button :icon="Plus" @click="openCreateWs">新建工作区</el-button>
+          </div>
+        </el-form-item>
         </el-form>
       </div>
 
@@ -737,6 +800,30 @@ const autoTriggerPreview = computed(() => {
       </div>
       </template>
     </div>
+
+    <Modal v-if="showCreateWs" title="新建工作区" width="420px" @close="showCreateWs = false">
+      <el-input
+        v-model="createWsName"
+        placeholder="工作区名称"
+        maxlength="255"
+        show-word-limit
+        @keyup.enter="submitCreateWs"
+      />
+      <el-alert
+        v-if="createWsError"
+        :title="createWsError"
+        type="error"
+        :closable="false"
+        show-icon
+        style="margin-top: 0.5rem"
+      />
+      <template #footer>
+        <el-button @click="showCreateWs = false">取消</el-button>
+        <el-button type="primary" :loading="createWsSubmitting" @click="submitCreateWs">
+          创建
+        </el-button>
+      </template>
+    </Modal>
 
     <template #footer>
       <template v-if="loading || fetchError || configs.length === 0">
@@ -859,6 +946,15 @@ const autoTriggerPreview = computed(() => {
 }
 .cc-trigger-hint {
   margin-top: 0.25rem;
+}
+.cc-ws-picker {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  width: 100%;
+}
+.cc-ws-picker .el-select {
+  flex: 1;
 }
 .cc-modal-body {
   display: flex;
