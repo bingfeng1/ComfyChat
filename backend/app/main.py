@@ -4,7 +4,7 @@ from typing import Optional
 
 from fastapi import FastAPI
 
-from app.api.routes import generations, health, lora, workflows
+from app.api.routes import generations, health, lora, workflows, workspaces
 from app.core import database
 from app.core.config import Settings
 from app.core.migrate import migrate
@@ -29,6 +29,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     app.include_router(workflows.router)
     app.include_router(generations.router)
     app.include_router(lora.router)
+    app.include_router(workspaces.router)
     return app
 
 

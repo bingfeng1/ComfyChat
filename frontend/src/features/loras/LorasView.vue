@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
+import { storeToRefs } from "pinia";
 import { Refresh, Search } from "@element-plus/icons-vue";
 import { api } from "@/services/api";
-import { useNsfwFilter } from "@/composables/useNsfwFilter";
+import { useNsfwStore } from "@/stores/nsfw";
 import type { LoraSummary } from "@/types/api";
 
 const items = ref<LoraSummary[]>([]);
@@ -12,7 +13,7 @@ const search = ref("");
 const familyFilter = ref("");
 const boundFilter = ref("");
 const deletedFilter = ref("");
-const { enabled: nsfwEnabled } = useNsfwFilter();
+const { enabled: nsfwEnabled } = storeToRefs(useNsfwStore());
 
 const BINDING_GUIDE_URL = "/docs/lora-ai-binding-guide.md";
 const guideNotice = ref(true);

@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.models.generation import Generation, WorkflowGenerationConfig
 from app.models.lora import Lora
 from app.models.workflow import Workflow
+from app.models.workspace import GenerationWorkspaceLink
 
 
 def _utcnow() -> str:
@@ -91,6 +92,7 @@ class GenerationRepository:
         page_size: int = 15,
         exclude_nsfw: bool = False,
         workflow_id: Optional[str] = None,
+        workspace_id: Optional[str] = None,
     ) -> Sequence[Generation]:
         if page < 1:
             page = 1
@@ -103,6 +105,14 @@ class GenerationRepository:
             stmt = stmt.where(Generation.status == status)
         if workflow_id:
             stmt = stmt.where(Generation.workflow_id == workflow_id)
+        if workspace_id:
+            stmt = stmt.where(
+                Generation.id.in_(
+                    select(GenerationWorkspaceLink.generation_id).where(
+                        GenerationWorkspaceLink.workspace_id == workspace_id
+                    )
+                )
+            )
         if exclude_nsfw:
             stmt = stmt.where(self._nsfw_filter())
         stmt = stmt.order_by(Generation.created_at.desc())
@@ -115,12 +125,21 @@ class GenerationRepository:
         *,
         exclude_nsfw: bool = False,
         workflow_id: Optional[str] = None,
+        workspace_id: Optional[str] = None,
     ) -> int:
         stmt = select(func.count()).select_from(Generation)
         if status:
             stmt = stmt.where(Generation.status == status)
         if workflow_id:
             stmt = stmt.where(Generation.workflow_id == workflow_id)
+        if workspace_id:
+            stmt = stmt.where(
+                Generation.id.in_(
+                    select(GenerationWorkspaceLink.generation_id).where(
+                        GenerationWorkspaceLink.workspace_id == workspace_id
+                    )
+                )
+            )
         if exclude_nsfw:
             stmt = stmt.where(self._nsfw_filter())
         return int(self.session.scalar(stmt) or 0)

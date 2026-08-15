@@ -65,6 +65,7 @@ class GenerationConfigListOut(BaseModel):
 class GenerationCreateIn(BaseModel):
     workflow_id: str
     parameters: dict
+    workspace_ids: list[str] = Field(default_factory=list)
 
 
 class GenerationOut(BaseModel):
@@ -76,11 +77,16 @@ class GenerationOut(BaseModel):
     prompt_id: str
     error: str | None = None
     outputs: list[str] = Field(default_factory=list)
+    workspace_ids: list[str] = Field(default_factory=list)
     created_at: str
     updated_at: str
 
     @classmethod
-    def from_model(cls, gen: Generation) -> "GenerationOut":
+    def from_model(
+        cls,
+        gen: Generation,
+        workspace_ids: list[str] | None = None,
+    ) -> "GenerationOut":
         return cls(
             id=gen.id,
             workflow_id=gen.workflow_id,
@@ -90,9 +96,14 @@ class GenerationOut(BaseModel):
             prompt_id=gen.prompt_id,
             error=gen.error,
             outputs=json.loads(gen.outputs_json or "[]"),
+            workspace_ids=list(workspace_ids or []),
             created_at=gen.created_at,
             updated_at=gen.updated_at,
         )
+
+
+class GenerationWorkspacesIn(BaseModel):
+    workspace_ids: list[str] = Field(default_factory=list)
 
 
 class GenerationListOut(BaseModel):

@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
+import { storeToRefs } from "pinia";
 import { Refresh } from "@element-plus/icons-vue";
 import { api } from "@/services/api";
-import { useNsfwFilter } from "@/composables/useNsfwFilter";
+import { useNsfwStore } from "@/stores/nsfw";
 import type { HealthStatus } from "@/types/api";
 
-const { enabled: nsfwEnabled, setEnabled: setNsfwEnabled } = useNsfwFilter();
+const nsfwStore = useNsfwStore();
+const { enabled: nsfwEnabled } = storeToRefs(nsfwStore);
+const setNsfwEnabled = nsfwStore.setEnabled;
 
 const health = ref<HealthStatus | null>(null);
 const error = ref<string | null>(null);

@@ -4,7 +4,7 @@ import ElementPlus from "element-plus";
 import zhCn from "element-plus/es/locale/lang/zh-cn";
 import "@/styles/index.scss";
 import App from "./App.vue";
-import { router } from "@/app/router";
+import { router } from "@/router";
 
 const app = createApp(App);
 app.use(createPinia());

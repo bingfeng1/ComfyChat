@@ -69,6 +69,7 @@ export interface GenerationSummary {
   prompt_id: string;
   error: string | null;
   outputs: string[];
+  workspace_ids: string[];
   created_at: string;
   updated_at: string;
 }
@@ -130,4 +131,23 @@ export interface LoraSummary {
 
 export interface LoraList {
   items: LoraSummary[];
+}
+
+export interface WorkspacePreviewItem {
+  generation_id: string;
+  filename: string;
+  media_type: "image" | "video";
+}
+
+export interface WorkspaceSummary {
+  id: string;
+  name: string;
+  created_at: string;
+  updated_at: string;
+  generation_count: number;
+  preview: WorkspacePreviewItem[];
+}
+
+export interface WorkspaceList {
+  items: WorkspaceSummary[];
 }

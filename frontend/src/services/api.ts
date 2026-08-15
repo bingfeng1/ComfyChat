@@ -14,6 +14,8 @@ import type {
   WorkflowSummary,
   WorkflowVersion,
   WorkflowVersionList,
+  WorkspaceList,
+  WorkspaceSummary,
 } from "@/types/api";
 
 const API_BASE = "/api";
@@ -93,10 +95,11 @@ export const api = {
     },
   },
   generations: {
-    list: (params?: { status?: GenerationStatus; workflow_id?: string; page?: number; page_size?: number; exclude_nsfw?: boolean }) => {
+    list: (params?: { status?: GenerationStatus; workflow_id?: string; workspace_id?: string; page?: number; page_size?: number; exclude_nsfw?: boolean }) => {
       const sp = new URLSearchParams();
       if (params?.status) sp.set("status", params.status);
       if (params?.workflow_id) sp.set("workflow_id", params.workflow_id);
+      if (params?.workspace_id) sp.set("workspace_id", params.workspace_id);
       if (params?.page) sp.set("page", String(params.page));
       if (params?.page_size) sp.set("page_size", String(params.page_size));
       if (params?.exclude_nsfw) sp.set("exclude_nsfw", "true");
@@ -107,6 +110,7 @@ export const api = {
     create: async (payload: {
       workflow_id: string;
       parameters: Record<string, unknown>;
+      workspace_ids?: string[];
     }) => {
       const res = await request(`/generations`, {
         method: "POST",
@@ -117,6 +121,16 @@ export const api = {
     },
     cancel: (id: string) => request(`/generations/${id}/cancel`, { method: "POST" }),
     remove: (id: string) => request(`/generations/${id}`, { method: "DELETE" }),
+    setWorkspaces: (id: string, workspaceIds: string[]) =>
+      request(`/generations/${id}/workspaces`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ workspace_ids: workspaceIds }),
+      }),
+    removeWorkspace: (id: string, workspaceId: string) =>
+      request(`/generations/${id}/workspaces/${encodeURIComponent(workspaceId)}`, {
+        method: "DELETE",
+      }),
     imageUrl: (id: string, filename: string) =>
       `${API_BASE}/generations/${id}/images/${encodeURIComponent(filename)}`,
   },
@@ -134,5 +148,26 @@ export const api = {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ trigger_words: triggerWords }),
       }),
+  },
+  workspaces: {
+    list: () => get<WorkspaceList>("/workspaces"),
+    get: (id: string) =>
+      get<WorkspaceSummary>(`/workspaces/${encodeURIComponent(id)}`),
+    create: (name: string) =>
+      request("/workspaces", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      }),
+    update: (id: string, name: string) =>
+      request(`/workspaces/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      }),
+    remove: (id: string) =>
+      request(`/workspaces/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    generationCount: (id: string) =>
+      get<{ count: number }>(`/workspaces/${encodeURIComponent(id)}/generation-count`),
   },
 };
