@@ -16,6 +16,7 @@ from app.integrations.comfyui.client import ComfyUIClient, ComfyUIError
 from app.models.generation import Generation
 from app.repositories.generation import GenerationRepository, WorkflowGenerationConfigRepository
 from app.repositories.workflow import WorkflowRepository
+from app.repositories.workspace import WorkspaceRepository
 
 
 def _utcnow() -> str:
@@ -566,7 +567,12 @@ class GenerationService:
         self.settings = settings
         self.db = db
 
-    def create(self, workflow_id: str, parameters: dict) -> Generation:
+    def create(
+        self,
+        workflow_id: str,
+        parameters: dict,
+        workspace_ids: list[str] | None = None,
+    ) -> Generation:
         cfg = self.config_repo.get_by_workflow(workflow_id)
         if cfg is None:
             raise ValueError("workflow not configured")
@@ -582,7 +588,7 @@ class GenerationService:
         prompt_id, client_id = self.comfyui.submit_prompt(filled)
         wf = WorkflowRepository(self.gen_repo.session).get(workflow_id)
         wf_name = wf.name if wf else workflow_id
-        return self.gen_repo.create(
+        gen = self.gen_repo.create(
             workflow_id=workflow_id,
             workflow_name=wf_name,
             parameters=effective,
@@ -590,6 +596,16 @@ class GenerationService:
             prompt_id=prompt_id,
             client_id=client_id,
         )
+        # 验证 workspace_ids 都存在,缺失抛 400;空列表跳过
+        if workspace_ids:
+            ws_repo = WorkspaceRepository(self.gen_repo.session)
+            valid_ids: list[str] = []
+            for ws_id in workspace_ids:
+                if ws_repo.get(ws_id) is not None:
+                    valid_ids.append(ws_id)
+            if valid_ids:
+                ws_repo.assign_workspaces(gen.id, valid_ids)
+        return gen
 
     def cancel(self, generation_id: str) -> Generation:
         """按 generation 当前状态选对应 ComfyUI 端点,然后删除记录。
