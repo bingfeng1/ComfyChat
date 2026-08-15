@@ -42,4 +42,5 @@ class WorkflowGenerationConfig(Base):
     )
     api_template: Mapped[str] = mapped_column(Text, nullable=False)
     fields_json: Mapped[str] = mapped_column(Text, nullable=False)
+    unchecked_keys_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     updated_at: Mapped[str] = mapped_column(String(40), nullable=False, default=_utcnow, onupdate=_utcnow)

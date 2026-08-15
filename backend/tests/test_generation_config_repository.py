@@ -40,3 +40,17 @@ def test_list_configured_with_name(session):
     cfg, name = items[0]
     assert name == "z-image"
     assert cfg.workflow_id == wid
+
+
+def test_upsert_with_unchecked_keys(session):
+    repo = WorkflowGenerationConfigRepository(session)
+    wid = _seed_workflow(session, "test-uc")
+    cfg = repo.upsert(wid, {"3": {"inputs": {"seed": 1}}}, [
+        {"key": "seed", "label": "种子", "type": "seed", "node_id": "3", "input_name": "seed", "default": 0, "required": True},
+    ], unchecked_keys=["width", "height"])
+    assert cfg.unchecked_keys_json is not None
+    import json
+    keys = json.loads(cfg.unchecked_keys_json)
+    assert "width" in keys
+    assert "height" in keys
+    assert "seed" not in keys

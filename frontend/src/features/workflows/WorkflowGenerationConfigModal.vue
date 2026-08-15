@@ -14,6 +14,7 @@ const loading = ref(true);
 const saving = ref(false);
 const error = ref<string | null>(null);
 const staleConfigNotice = ref<string | null>(null);
+const hasTextFields = ref(true);
 
 const DEFAULT_CHECKED_KEYS = new Set(["seed", "width", "height"]);
 const DEFAULT_CHECKED_LABELS = new Set(["正面提示词", "负面提示词"]);
@@ -38,16 +39,24 @@ onMounted(async () => {
     const d = await api.workflows.generationConfig.discover(props.workflowId);
     fields.value = d.fields;
     apiTemplate.value = d.api_template;
+    hasTextFields.value = d.fields.some((f) => f.type === "text");
     const existing = await api.workflows.generationConfig.get(props.workflowId);
     if (existing && existing.fields.length > 0) {
-      const savedKeys = new Set(existing.fields.map((f) => f.key));
-      // 重发现时:已保存字段保持勾上,新发现字段中「seed 类等高优先字段」也默认勾上
-      // (避免用户在长长列表里漏勾关键字段)。
+      // 优先用显式存下的 unchecked_keys 初始化 removed
+      const uncheckedKeys = existing.unchecked_keys || [];
+      const discoveredKeys = new Set(d.fields.map((f) => f.key));
       removed.value = new Set(
-        d.fields
-          .filter((f) => !savedKeys.has(f.key) && !isDefaultChecked(f))
-          .map((f) => f.key),
+        uncheckedKeys.filter((k) => discoveredKeys.has(k)),
       );
+      // 再处理新发现字段: 按默认勾选规则决定
+      const savedKeys = new Set(existing.fields.map((f) => f.key));
+      for (const f of d.fields) {
+        if (!savedKeys.has(f.key) && !removed.value.has(f.key)) {
+          if (!isDefaultChecked(f)) {
+            removed.value.add(f.key);
+          }
+        }
+      }
       const isArrayByKey = new Map<string, boolean>();
       for (const ef of existing.fields) {
         if (typeof ef.is_array === "boolean") isArrayByKey.set(ef.key, ef.is_array);
@@ -61,9 +70,9 @@ onMounted(async () => {
         }
       }
       // 检测老格式:已存 config 含 strength_model 但 discover 没返回 = 旧 scalar LoRA 配置
-      const discoveredKeys = new Set(d.fields.map((f) => f.key));
+      const discoveredKeysCheck = new Set(d.fields.map((f) => f.key));
       const staleFields = existing.fields.filter(
-        (f) => !discoveredKeys.has(f.key) && f.input_name === "strength_model",
+        (f) => !discoveredKeysCheck.has(f.key) && f.input_name === "strength_model",
       );
       if (staleFields.length > 0) {
         staleConfigNotice.value =
@@ -102,6 +111,7 @@ async function save() {
     await api.workflows.generationConfig.save(props.workflowId, {
       api_template: apiTemplate.value,
       fields: visible,
+      unchecked_keys: Array.from(removed.value),
     });
     emit("saved");
     emit("close");
@@ -133,6 +143,13 @@ async function save() {
       <div v-if="fields.length === 0 && !error" class="cc-empty">
         未发现可填参数。请确认工作流已保存为 ComfyUI 格式。
       </div>
+      <el-alert
+        v-else-if="!hasTextFields && !error"
+        title="此工作流未检测到文本输入字段"
+        type="info"
+        :closable="false"
+        show-icon
+      />
 
       <div
         v-for="f in fields"

@@ -49,3 +49,18 @@ def test_generation_config_out_from_model(session):
     out = GenerationConfigOut.from_model(cfg)
     assert out.api_template == {}
     assert out.fields == []
+    assert out.unchecked_keys == []
+
+
+def test_generation_config_out_from_model_with_unchecked(session):
+    from app.models.generation import WorkflowGenerationConfig
+    cfg = WorkflowGenerationConfig(
+        workflow_id="wf1",
+        api_template="{}",
+        fields_json='[{"key":"seed","label":"种子","type":"seed","node_id":"3","input_name":"seed","default":0,"required":true}]',
+        unchecked_keys_json='["width","height"]',
+    )
+    session.add(cfg)
+    session.commit()
+    out = GenerationConfigOut.from_model(cfg)
+    assert out.unchecked_keys == ["width", "height"]

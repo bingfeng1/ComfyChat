@@ -26,21 +26,25 @@ class GenerationField(BaseModel):
 class GenerationConfigIn(BaseModel):
     api_template: dict
     fields: list[GenerationField]
+    unchecked_keys: list[str] = Field(default_factory=list)
 
 
 class GenerationConfigOut(BaseModel):
     workflow_id: str
     api_template: dict
     fields: list[GenerationField]
+    unchecked_keys: list[str] = Field(default_factory=list)
     updated_at: str
     main_model: str | None = None
 
     @classmethod
     def from_model(cls, cfg: WorkflowGenerationConfig) -> "GenerationConfigOut":
+        unchecked = json.loads(cfg.unchecked_keys_json) if cfg.unchecked_keys_json else []
         return cls(
             workflow_id=cfg.workflow_id,
             api_template=json.loads(cfg.api_template),
             fields=[GenerationField(**f) for f in json.loads(cfg.fields_json)],
+            unchecked_keys=unchecked,
             updated_at=cfg.updated_at,
         )
 
@@ -54,6 +58,7 @@ class GenerationConfigSummaryOut(BaseModel):
     workflow_id: str
     workflow_name: str
     fields: list[GenerationField]
+    unchecked_keys: list[str] = Field(default_factory=list)
     api_template: dict | None = None
     main_model: str | None = None
 
