@@ -36,6 +36,12 @@ const routes: RouteRecordRaw[] = [
     component: () => import("@/features/workspaces/WorkspacesView.vue"),
     meta: { label: "工作区", icon: Collection, sidebar: true },
   },
+  {
+    path: "/workspaces/:id",
+    name: "workspace-detail",
+    component: () => import("@/features/workspaces/WorkspaceDetailView.vue"),
+    meta: { sidebar: false },
+  },
 ];
 
 export const router = createRouter({

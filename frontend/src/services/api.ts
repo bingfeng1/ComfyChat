@@ -151,6 +151,8 @@ export const api = {
   },
   workspaces: {
     list: () => get<WorkspaceList>("/workspaces"),
+    get: (id: string) =>
+      get<WorkspaceSummary>(`/workspaces/${encodeURIComponent(id)}`),
     create: (name: string) =>
       request("/workspaces", {
         method: "POST",
